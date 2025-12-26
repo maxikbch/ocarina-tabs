@@ -7,9 +7,9 @@ import SongTimeline from "@/components/SongTimeline";
 import type { Fingering, HoleId, NoteEvent, NoteId } from "@/lib/types";
 import { getFingeringForNote, EMPTY, hasFingeringForNote } from "@/lib/fingerings";
 import { exportSongPdf } from "@/lib/exportPdf";
-import { buildChromaticRange } from "@/lib/notes";
+import { buildChromaticRange, shiftNote } from "@/lib/notes";
 import type { NoteLabelMode } from "@/lib/noteLabels";
-import { listSongNames, saveSong, loadSong, removeSong, hasSong, downloadBundle } from "@/lib/songStore";
+import { listSongNames, saveSong, loadSong, removeSong, hasSong, downloadBundle, getSongTranspose } from "@/lib/songStore";
 import { usePiano } from "@/lib/usePiano";
 
 function cloneFingering(f: Fingering): Fingering {
@@ -33,15 +33,22 @@ export default function Page() {
   }, []);
 
   const { ready: pianoReady, play } = usePiano();
+  const [transpose, setTranspose] = useState<number>(0);
   const fileRef = useRef<HTMLInputElement | null>(null);
+
+  function incTranspose() {
+    setTranspose((t) => t + 1);
+  }
+  function decTranspose() {
+    setTranspose((t) => t - 1);
+  }
 
   async function handleNoteClick(note: string) {
     // Reproducir preview
     await play(note, 0.6);
     // Agregar a la canción
-    const base = getFingeringForNote(note as NoteId, EMPTY);
-    const snapshot: Fingering =
-      typeof structuredClone === "function" ? structuredClone(base) : { ...base };
+    const baseF = getFingeringForNote(note as NoteId, EMPTY);
+    const snapshot: Fingering = typeof structuredClone === "function" ? structuredClone(baseF) : { ...baseF };
     const ev: NoteEvent = { id: nanoid(), note, fingering: snapshot };
     setSong((s) => [...s, ev]);
     setSelectedId(ev.id);
@@ -234,7 +241,14 @@ export default function Page() {
       </div>
 
       <section style={{ display: "grid", gap: 14, marginTop: 18 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 900 }}>Teclado</h2>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 900, display: "flex", alignItems: "center" }}>
+          Teclado
+          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={decTranspose} style={{ padding: "4px 10px", borderRadius: 10 }}>–</button>
+            <span style={{ minWidth: 28, textAlign: "center" }}>{transpose}</span>
+            <button onClick={incTranspose} style={{ padding: "4px 10px", borderRadius: 10 }}>+</button>
+          </span>
+        </h2>
         <div style={{ display: "flex", gap: 0, alignItems: "center" }}>
           <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
             <div style={{ width: "min(100%, 900px)" }}>
@@ -242,7 +256,7 @@ export default function Page() {
                 notes={NOTES}
                 labelMode={noteLabelMode}
                 onNoteClick={handleNoteClick}
-                isEnabledNote={(noteId) => hasFingeringForNote(noteId as NoteId)}
+                isEnabledNote={(noteId) => hasFingeringForNote(shiftNote(noteId, transpose) as NoteId)}
               />
             </div>
           </div>
@@ -278,6 +292,7 @@ export default function Page() {
                 setSong([]);
                 setSelectedId(null);
                 setSelectedSaved("");
+                setTranspose(0);
               }}
               style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
               title="Crear una canción nueva (vacía)"
@@ -292,7 +307,7 @@ export default function Page() {
                 if (hasSong(name) && !confirm(`La canción "${name}" ya existe. ¿Sobrescribir?`)) {
                   return;
                 }
-                saveSong(name, song);
+                saveSong(name, song, transpose);
                 setSavedNames(listSongNames());
                 setSelectedSaved(name);
                 alert("Canción guardada");
@@ -313,6 +328,8 @@ export default function Page() {
                 if (loaded) {
                   setSong(loaded);
                   setSelectedId(null);
+                  const t = getSongTranspose(name);
+                  setTranspose(t);
                 }
               }}
               disabled={savedNames.length === 0}

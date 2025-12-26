@@ -13,11 +13,13 @@ export default function StepCard({
   fingering,
   labelMode = "letter",
   imageHref,
+  displayNote,
 }: {
   note: NoteId;
   fingering: Fingering;
   labelMode?: NoteLabelMode;
   imageHref?: string;
+  displayNote?: NoteId;
 }) {
   return (
     <div
@@ -30,7 +32,7 @@ export default function StepCard({
       }}
     >
       <div style={{ fontSize: 52, fontWeight: 900, marginBottom: 12, color: "#000"}}>
-        {formatNoteLabel(note, labelMode)}
+        {formatNoteLabel((displayNote ?? note) as string, labelMode)}
       </div>
       <OcarinaSvg fingering={fingering} width={OCARINA_WIDTH} imageHref={imageHref} showLabels={false} />
     </div>

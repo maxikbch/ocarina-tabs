@@ -39,4 +39,12 @@ export function buildChromaticRange(opts: { from: string; to: string }): string[
   return out;
 }
 
+// Desplaza una nota N semitonos (positivo hacia arriba, negativo hacia abajo)
+export function shiftNote(noteId: string, semitones: number): string {
+  if (!semitones) return noteId;
+  const idx = toIndex(noteId);
+  const shifted = idx + semitones;
+  return fromIndex(shifted);
+}
+
 

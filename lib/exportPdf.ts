@@ -7,6 +7,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import StepCard from "@/components/StepCard";
 import type { NoteEvent } from "./types";
 import type { NoteLabelMode } from "./noteLabels";
+import { shiftNote } from "./notes";
 
 function dataUrlToBytes(dataUrl: string): { mime: string; bytes: Uint8Array } {
   const m = /^data:([^;,]+)(;charset=[^;,]+)?(;base64)?,(.*)$/i.exec(dataUrl);
@@ -65,11 +66,12 @@ async function waitForImages(node: HTMLElement) {
 
 export async function exportSongPdf(
   song: NoteEvent[],
-  options?: { labelMode?: NoteLabelMode; title?: string }
+  options?: { labelMode?: NoteLabelMode; title?: string; transpose?: number }
 ) {
   if (song.length === 0) return;
   const labelMode = options?.labelMode ?? "latin";
   const title = options?.title ?? "Canción";
+  const transpose = options?.transpose ?? 0;
 
   await preloadImage("/ocarina.png");
   const ocarinaDataUrl = await fetchAsDataUrl("/ocarina.png");
