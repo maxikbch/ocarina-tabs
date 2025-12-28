@@ -4,6 +4,7 @@ import React from "react";
 import type { NoteEvent } from "@/lib/types";
 import { formatNoteLabel, NoteLabelMode } from "@/lib/noteLabels";
 import OcarinaSvg from "@/components/OcarinaSvg";
+import { hasFingeringForNote } from "@/lib/fingerings";
 
 export default function SongTimeline({
   song,
@@ -59,6 +60,7 @@ export default function SongTimeline({
               gap: 8,
               padding: 12,
               borderRadius: 14,
+              position: "relative",
               border: isSpecial
                 ? "none"
                 : applySelected
@@ -85,7 +87,41 @@ export default function SongTimeline({
                 </button>
               </div>
             )}
-            {!isSpecial && <OcarinaSvg fingering={ev.fingering} width={100} showLabels={false}/>}
+            {!isSpecial && (
+              <div style={{ position: "relative", width: 100 }}>
+                <OcarinaSvg fingering={ev.fingering} width={100} showLabels={false}/>
+                {!hasFingeringForNote(ev.note as any) && (
+                  <div
+                    title="Sin digitación para esta nota"
+                    aria-label="Sin digitación para esta nota"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      left: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: "#ff3b30",
+                        fontSize: 84,
+                        fontWeight: 900,
+                        lineHeight: 1,
+                        textShadow: "0 0 4px rgba(0,0,0,0.35)",
+                        transform: "translateY(-2px)",
+                      }}
+                    >
+                      ✕
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {isSpace && (
               <div
                 style={{
@@ -197,6 +233,7 @@ export default function SongTimeline({
             if (!sourceId) return;
             onReorder?.(sourceId, song.length - 1);
           }}
+          onClick={() => onSelect("")}
           style={{
             display: "flex",
             alignItems: "center",
