@@ -14,6 +14,10 @@ import SongPickerSidebar from "@/components/SongPickerSidebar";
 import SaveSongModal from "@/components/SaveSongModal";
 import RenameSongModal from "@/components/RenameSongModal";
 import { usePiano } from "@/lib/usePiano";
+import ErrorModal from "@/components/ErrorModal";
+import ConfirmModal from "@/components/ConfirmModal";
+import PromptModal from "@/components/PromptModal";
+import LoadingModal from "@/components/LoadingModal";
 
 function cloneFingering(f: Fingering): Fingering {
   return { ...f };
@@ -35,6 +39,13 @@ export default function Page() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<any>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
+  const confirmResolverRef = useRef<(val: boolean) => void>();
+  const [promptState, setPromptState] = useState<{ open: boolean; title: string; label: string; initial: string } | null>(null);
+  const promptResolverRef = useRef<(val: string | null) => void>();
+  const [exportLoading, setExportLoading] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
 
   const selected = song.find((x) => x.id === selectedId);
 
@@ -95,7 +106,7 @@ export default function Page() {
     return arr.map((e) => e.note).join(" ");
   }
 
-  function handleDownloadRepertorio() {
+  async function handleDownloadRepertorio() {
     const now = new Date();
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, "0");
@@ -103,16 +114,23 @@ export default function Page() {
     const hh = String(now.getHours()).padStart(2, "0");
     const min = String(now.getMinutes()).padStart(2, "0");
     const example = `repertorio_ocarina_${yyyy}-${mm}-${dd}_${hh}_${min}.json`;
-    const input = prompt("Nombre de archivo para descargar el repertorio:", example);
+    const input = await askPrompt("Descargar repertorio", "Nombre de archivo", example);
+    if (input == null) return;
     const chosen = sanitizeFilename((input ?? "").trim()) || example;
     const finalName = chosen.toLowerCase().endsWith(".json") ? chosen : `${chosen}.json`;
-    downloadBundle(finalName);
+    setExportLoading(true);
+    try {
+      downloadBundle(finalName);
+    } finally {
+      setTimeout(() => setExportLoading(false), 300);
+    }
   }
 
   async function handleUploadRepertorio(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
+      setImportLoading(true);
       const text = await file.text();
       const parsed = JSON.parse(text) as any;
       let songsAny: any = null;
@@ -128,7 +146,7 @@ export default function Page() {
         songsAny = parsed; // could be plain map
       }
       if (!songsAny || typeof songsAny !== "object") {
-        alert("Archivo inválido.");
+        setErrorMsg("Archivo inválido.");
         return;
       }
       let imported = 0;
@@ -168,7 +186,7 @@ export default function Page() {
           // idénticas: omitir
           continue;
         }
-        const ok = confirm(`La canción "${name}" ya existe.\n\nActual:\n${a}\n\nNueva:\n${b}\n\n¿Sobrescribir?`);
+        const ok = await askConfirm(`La canción "${name}" ya existe.\n\nActual:\n${a}\n\nNueva:\n${b}\n\n¿Sobrescribir?`);
         if (ok) {
           const events: NoteEvent[] = incomingNotes.map((n) => {
             const base = getFingeringForNote(n as NoteId, EMPTY);
@@ -181,10 +199,11 @@ export default function Page() {
       }
       setSavedNames(listSongNames());
       setSelectedSaved("");
-      alert(`Importadas ${imported} canciones`);
+      showToast(`Importadas ${imported} canciones`);
     } catch (err) {
-      alert("No se pudo leer el archivo de repertorio.");
+      setErrorMsg("No se pudo leer el archivo de repertorio.");
     } finally {
+      setImportLoading(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   }
@@ -316,6 +335,19 @@ export default function Page() {
     }, durationMs);
   }
 
+  function askConfirm(message: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmMsg(message);
+    });
+  }
+
+  function askPrompt(title: string, label: string, initial: string): Promise<string | null> {
+    return new Promise<string | null>((resolve) => {
+      setPromptState({ open: true, title, label, initial });
+      promptResolverRef.current = resolve;
+    });
+  }
   function handleSelectEvent(id: string) {
     // Si clickean la misma nota ya seleccionada o llega vacío, desseleccionar y no sonar
     if (!id || id === selectedId) {
@@ -375,15 +407,16 @@ export default function Page() {
           Cargar repertorio
         </button>
         <button
-          onClick={() => {
-            if (!confirm("¿Borrar todo el repertorio guardado? Esta acción no se puede deshacer.")) return;
+          onClick={async () => {
+            const ok = await askConfirm("¿Borrar todo el repertorio guardado? Esta acción no se puede deshacer.");
+            if (!ok) return;
             clearAllSongs();
             const list = listSongNames();
             setSavedNames(list);
             setSelectedSaved("");
             setAllSongs([]);
             setCategories([]);
-            alert("Repertorio borrado.");
+            showToast("Repertorio borrado.");
           }}
           style={{ padding: "10px 12px", borderRadius: 12, background: "#7a1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
           title="Borrar todas las canciones guardadas"
@@ -525,9 +558,10 @@ export default function Page() {
             </button>
 
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (!selectedSaved) return;
-                if (!confirm(`¿Eliminar "${selectedSaved}" de la memoria?`)) return;
+                const ok = await askConfirm(`¿Eliminar "${selectedSaved}" de la memoria?`);
+                if (!ok) return;
                 removeSong(selectedSaved);
                 const names = listSongNames();
                 setSavedNames(names);
@@ -545,11 +579,16 @@ export default function Page() {
 
           <div style={{ marginLeft: "auto" }}>
             <button
-              onClick={() => {
+              onClick={async () => {
                 const base = selectedSaved || "Canción Ocarina";
                 const sign = transpose < 0 ? "−" : "+";
                 const suffix = transpose !== 0 ? ` (T${sign}${Math.abs(transpose)})` : "";
-                exportSongPdf(displaySong, { labelMode: noteLabelMode, title: base + suffix, transpose });
+                setExportLoading(true);
+                try {
+                  await exportSongPdf(displaySong, { labelMode: noteLabelMode, title: base + suffix, transpose });
+                } finally {
+                  setExportLoading(false);
+                }
               }}
               disabled={song.length === 0}
               style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", opacity: song.length === 0 ? 0.5 : 1, cursor: song.length === 0 ? "not-allowed" : "pointer" }}
@@ -588,13 +627,13 @@ export default function Page() {
         initialName={selectedSaved || ""}
         categories={categories}
         onCancel={() => setSaveOpen(false)}
-        onSave={(name, category) => {
+        onSave={async (name, category) => {
           if (song.length === 0) {
-            alert("No hay notas en la canción para guardar.");
             return;
           }
-          if (hasSong(name) && !confirm(`La canción "${name}" ya existe. ¿Sobrescribir?`)) {
-            return;
+          if (hasSong(name)) {
+            const ok = await askConfirm(`La canción "${name}" ya existe. ¿Sobrescribir?`);
+            if (!ok) return;
           }
           saveSong(name, song, transpose, category);
           const names = listSongNames();
@@ -610,15 +649,16 @@ export default function Page() {
         open={renameOpen}
         initialName={selectedSaved || ""}
         onCancel={() => setRenameOpen(false)}
-        onSave={(newName) => {
+        onSave={async (newName) => {
           const trimmed = (newName || "").trim();
           if (!trimmed) return;
           if (!selectedSaved) {
             setRenameOpen(false);
             return;
           }
-          if (selectedSaved !== trimmed && hasSong(trimmed) && !confirm(`La canción "${trimmed}" ya existe. ¿Sobrescribir?`)) {
-            return;
+          if (selectedSaved !== trimmed && hasSong(trimmed)) {
+            const ok = await askConfirm(`La canción "${trimmed}" ya existe. ¿Sobrescribir?`);
+            if (!ok) return;
           }
           renameSong(selectedSaved, trimmed);
           const names = listSongNames();
@@ -629,6 +669,37 @@ export default function Page() {
           showToast("Nombre actualizado");
         }}
       />
+      <ErrorModal open={!!errorMsg} message={errorMsg || ""} onClose={() => setErrorMsg(null)} />
+      <ConfirmModal
+        open={!!confirmMsg}
+        message={confirmMsg || ""}
+        onCancel={() => {
+          setConfirmMsg(null);
+          confirmResolverRef.current?.(false);
+        }}
+        onConfirm={() => {
+          setConfirmMsg(null);
+          confirmResolverRef.current?.(true);
+        }}
+      />
+      {promptState && (
+        <PromptModal
+          open={true}
+          title={promptState.title}
+          label={promptState.label}
+          initialValue={promptState.initial}
+          onCancel={() => {
+            setPromptState(null);
+            promptResolverRef.current?.(null);
+          }}
+          onSubmit={(val) => {
+            setPromptState(null);
+            promptResolverRef.current?.(val);
+          }}
+        />
+      )}
+      <LoadingModal open={exportLoading} title="Generando archivo…" />
+      <LoadingModal open={importLoading} title="Importando repertorio…" />
       {toast && (
         <div
           style={{
