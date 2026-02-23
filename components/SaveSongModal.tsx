@@ -6,12 +6,14 @@ export default function SaveSongModal({
   open,
   initialName = "",
   categories = [],
+  initialCategory = "",
   onCancel,
   onSave,
 }: {
   open: boolean;
   initialName?: string;
   categories?: string[];
+  initialCategory?: string;
   onCancel: () => void;
   onSave: (name: string, category: string) => void;
 }) {
@@ -23,10 +25,11 @@ export default function SaveSongModal({
   useEffect(() => {
     if (open) {
       setName(initialName);
-      setCategory("");
+      setCategory(initialCategory || "");
+      setUseNewCategory(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [open, initialName]);
+  }, [open, initialName, initialCategory]);
 
   function normalizeCategory(input: string): string {
     const trimmed = (input || "").trim();

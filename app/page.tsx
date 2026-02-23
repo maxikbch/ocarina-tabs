@@ -2,8 +2,10 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
-import PianoKeyboard from "@/components/PianoKeyboard";
-import SongTimeline from "@/components/SongTimeline";
+import ModeSidebar from "@/components/ModeSidebar";
+import ComposeMode from "@/components/modes/ComposeMode";
+import PlayMode from "@/components/modes/PlayMode";
+import RepertoireMode from "@/components/modes/RepertoireMode";
 import type { Fingering, HoleId, NoteEvent, NoteId } from "@/lib/types";
 import { getFingeringForNote, EMPTY, hasFingeringForNote } from "@/lib/fingerings";
 import { exportSongPdf } from "@/lib/exportPdf";
@@ -18,10 +20,6 @@ import ErrorModal from "@/components/ErrorModal";
 import ConfirmModal from "@/components/ConfirmModal";
 import PromptModal from "@/components/PromptModal";
 import LoadingModal from "@/components/LoadingModal";
-
-function cloneFingering(f: Fingering): Fingering {
-  return { ...f };
-}
 
 export default function Page() {
   // Podés cambiar esto por el rango real de tu ocarina
@@ -59,6 +57,7 @@ export default function Page() {
   const [transpose, setTranspose] = useState<number>(0);
   const [testMode, setTestMode] = useState<boolean>(false);
   const [freeMode, setFreeMode] = useState<boolean>(false);
+  const [mode, setMode] = useState<"tocar" | "componer" | "repertorio">("tocar");
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const displaySong = useMemo<NoteEvent[]>(() => {
@@ -86,10 +85,6 @@ export default function Page() {
   async function handleNoteClick(note: string) {
     // Reproducir preview
     await play(note, 0.6);
-    // Si hay una selección, desseleccionarla
-    if (selectedId) {
-      setSelectedId(null);
-    }
     // Test Mode: no guardar notas
     if (testMode) {
       return;
@@ -99,7 +94,18 @@ export default function Page() {
     const baseF = getFingeringForNote(storedNote as NoteId, EMPTY);
     const snapshot: Fingering = typeof structuredClone === "function" ? structuredClone(baseF) : { ...baseF };
     const ev: NoteEvent = { id: nanoid(), note: storedNote, fingering: snapshot };
-    setSong((s) => [...s, ev]);
+    setSong((s) => {
+      if (selectedId) {
+        const idx = s.findIndex((x) => x.id === selectedId);
+        if (idx >= 0) {
+          const copy = [...s];
+          copy.splice(idx + 1, 0, ev);
+          return copy;
+        }
+      }
+      return [...s, ev];
+    });
+    setSelectedId(ev.id);
   }
 
   function notesString(arr: NoteEvent[]): string {
@@ -226,7 +232,14 @@ export default function Page() {
         const isSpace = cur.note === "—" || cur.note === "SPACE";
         const isBreak = cur.note === "⏎" || cur.note === "BR" || cur.note === "SALTO";
         if (isSpace) {
-          // mismo componente: no agregar nada
+          // mismo componente: insertar otro espacio después
+          const ev: NoteEvent = { id: nanoid(), note: "—", fingering: EMPTY };
+          setSong((s) => {
+            const copy = [...s];
+            copy.splice(idx + 1, 0, ev);
+            return copy;
+          });
+          setSelectedId(ev.id);
           return;
         }
         if (isBreak) {
@@ -266,7 +279,14 @@ export default function Page() {
         const isSpace = cur.note === "—" || cur.note === "SPACE";
         const isBreak = cur.note === "⏎" || cur.note === "BR" || cur.note === "SALTO";
         if (isBreak) {
-          // mismo componente: no agregar nada
+          // mismo componente: insertar otro salto después
+          const ev: NoteEvent = { id: nanoid(), note: "⏎", fingering: EMPTY };
+          setSong((s) => {
+            const copy = [...s];
+            copy.splice(idx + 1, 0, ev);
+            return copy;
+          });
+          setSelectedId(ev.id);
           return;
         }
         if (isSpace) {
@@ -365,310 +385,166 @@ export default function Page() {
   }
 
   return (
-    <main style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "grid", gap: 6 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>Ocarina Tabs</h1>
-          </div>
-          <div style={{ opacity: 0.7 }}>
-            Agregá notas con el teclado y revisá la secuencia.
-          </div>
-        </div>
+    <main style={{ padding: 20, paddingLeft: 100, maxWidth: 1200, margin: "0 auto" }}>
+      <ModeSidebar
+        mode={mode}
+        onModeChange={setMode}
+        noteLabelMode={noteLabelMode}
+        onToggleNotation={() => setNoteLabelMode((m) => (m === "latin" ? "letter" : "latin"))}
+      />
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <select
-            value={noteLabelMode}
-            onChange={(e) => setNoteLabelMode(e.target.value as NoteLabelMode)}
-            style={{ padding: "6px 10px", borderRadius: 10, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
-            aria-label="Modo de nombres de notas"
-            title="Modo de nombres de notas"
-          >
-            <option value="latin">Notación latina</option>
-            <option value="letter">Notación anglosajona</option>
-          </select>
-        </div>
-      </header>
-
-      {/* Controles de compendio (debajo del título, arriba del teclado) */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, marginBottom: 6 }}>
-        <button
-          onClick={handleDownloadRepertorio}
-          style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
-          title="Descargar repertorio como JSON"
-        >
-          Descargar repertorio
-        </button>
-        <button
-          onClick={() => fileRef.current?.click()}
-          style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
-          title="Cargar repertorio desde JSON"
-        >
-          Cargar repertorio
-        </button>
-        <button
-          onClick={async () => {
-            const ok = await askConfirm("¿Borrar todo el repertorio guardado? Esta acción no se puede deshacer.");
-            if (!ok) return;
-            clearAllSongs();
-            const list = listSongNames();
-            setSavedNames(list);
-            setSelectedSaved("");
-            setAllSongs([]);
-            setCategories([]);
-            showToast("Repertorio borrado.");
+      <div>
+        {mode === "repertorio" ? (
+          <RepertoireMode
+            fileRef={fileRef}
+            onDownload={handleDownloadRepertorio}
+            onUploadClick={() => fileRef.current?.click()}
+            onClear={async () => {
+              const ok = await askConfirm("¿Borrar todo el repertorio guardado? Esta acción no se puede deshacer.");
+              if (!ok) return;
+              clearAllSongs();
+              const list = listSongNames();
+              setSavedNames(list);
+              setSelectedSaved("");
+              setAllSongs([]);
+              setCategories([]);
+              showToast("Repertorio borrado.");
+            }}
+            onUploadChange={handleUploadRepertorio}
+          />
+        ) : mode === "tocar" ? (
+          <PlayMode
+            selectedSaved={selectedSaved}
+            savedNamesCount={savedNames.length}
+            onOpenPicker={() => setPickerOpen(true)}
+            song={displaySong}
+            selectedId={selectedId}
+            onSelectEvent={handleSelectEvent}
+            onRemoveEvent={removeEvent}
+            onReorderEvent={reorderEvent}
+            noteLabelMode={noteLabelMode}
+          />
+        ) : (
+          <ComposeMode
+            notes={NOTES}
+            noteLabelMode={noteLabelMode}
+            testMode={testMode}
+            freeMode={freeMode}
+            transpose={transpose}
+            onTestModeChange={setTestMode}
+            onFreeModeChange={setFreeMode}
+            onTransposeDec={decTranspose}
+            onTransposeInc={incTranspose}
+            onNoteClick={handleNoteClick}
+            isEnabledNote={freeMode ? (() => true) : ((noteId) => hasFingeringForNote(shiftNote(noteId, -transpose) as NoteId))}
+            onAddSpace={addSpace}
+            onAddLineBreak={addLineBreak}
+            selectedSaved={selectedSaved}
+            savedNamesCount={savedNames.length}
+            songLength={song.length}
+            onNewSong={() => {
+              setSong([]);
+              setSelectedId(null);
+              setSelectedSaved("");
+              setTranspose(0);
+            }}
+            onOpenSave={() => setSaveOpen(true)}
+            onOpenPicker={() => setPickerOpen(true)}
+            onDeleteSaved={async () => {
+              if (!selectedSaved) return;
+              const ok = await askConfirm(`¿Eliminar "${selectedSaved}" de la memoria?`);
+              if (!ok) return;
+              removeSong(selectedSaved);
+              const names = listSongNames();
+              setSavedNames(names);
+              setSelectedSaved("");
+              setAllSongs(listSongsWithCategories());
+              setCategories(listCategories());
+            }}
+            onOpenRename={() => setRenameOpen(true)}
+            onExportPdf={async () => {
+              const base = selectedSaved || "Canción Ocarina";
+              const sign = transpose < 0 ? "−" : "+";
+              const suffix = transpose !== 0 ? ` (T${sign}${Math.abs(transpose)})` : "";
+              setExportLoading(true);
+              try {
+                await exportSongPdf(displaySong, { labelMode: noteLabelMode, title: base + suffix, transpose });
+              } finally {
+                setExportLoading(false);
+              }
+            }}
+            displaySong={displaySong}
+            selectedId={selectedId}
+            onSelectEvent={handleSelectEvent}
+            onRemoveEvent={removeEvent}
+            onReorderEvent={reorderEvent}
+          />
+        )}
+        <SongPickerSidebar
+          open={pickerOpen}
+          songs={allSongs}
+          onClose={() => setPickerOpen(false)}
+          onPick={(name) => {
+            const loaded = loadSong(name);
+            if (loaded) {
+              setSong(loaded);
+              setSelectedId(null);
+              const t = getSongTranspose(name);
+              setTranspose(t);
+              setSelectedSaved(name);
+            }
+            setPickerOpen(false);
           }}
-          style={{ padding: "10px 12px", borderRadius: 12, background: "#7a1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
-          title="Borrar todas las canciones guardadas"
-        >
-          Borrar repertorio
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/json"
-          style={{ display: "none" }}
-          onChange={handleUploadRepertorio}
+        />
+        <SaveSongModal
+          open={saveOpen}
+          initialName={selectedSaved || ""}
+          categories={categories}
+          initialCategory={(allSongs.find((s) => s.name === selectedSaved)?.category || "")}
+          onCancel={() => setSaveOpen(false)}
+          onSave={async (name, category) => {
+            if (song.length === 0) {
+              return;
+            }
+            if (hasSong(name)) {
+              const ok = await askConfirm(`La canción "${name}" ya existe. ¿Sobrescribir?`);
+              if (!ok) return;
+            }
+            saveSong(name, song, transpose, category);
+            const names = listSongNames();
+            setSavedNames(names);
+            setSelectedSaved(name);
+            setAllSongs(listSongsWithCategories());
+            setCategories(listCategories());
+            setSaveOpen(false);
+            showToast("Canción guardada");
+          }}
+        />
+        <RenameSongModal
+          open={renameOpen}
+          initialName={selectedSaved || ""}
+          onCancel={() => setRenameOpen(false)}
+          onSave={async (newName) => {
+            const trimmed = (newName || "").trim();
+            if (!trimmed) return;
+            if (!selectedSaved) {
+              setRenameOpen(false);
+              return;
+            }
+            if (selectedSaved !== trimmed && hasSong(trimmed)) {
+              const ok = await askConfirm(`La canción "${trimmed}" ya existe. ¿Sobrescribir?`);
+              if (!ok) return;
+            }
+            renameSong(selectedSaved, trimmed);
+            const names = listSongNames();
+            setSavedNames(names);
+            setSelectedSaved(trimmed);
+            setAllSongs(listSongsWithCategories());
+            setRenameOpen(false);
+            showToast("Nombre actualizado");
+          }}
         />
       </div>
-
-      <section style={{ display: "grid", gap: 14, marginTop: 18 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 900, display: "flex", alignItems: "center" }}>
-          Teclado
-          
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, userSelect: "none", marginLeft: "20px" }}>
-            <input
-              type="checkbox"
-              checked={testMode}
-              onChange={(e) => setTestMode(e.target.checked)}
-              title="No guardar notas al tocar"
-              aria-label="Test Mode: no guardar notas al tocar"
-            />
-            Test Mode
-          </label>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, userSelect: "none", marginLeft: "12px" }}>
-            <input
-              type="checkbox"
-              checked={freeMode}
-              onChange={(e) => setFreeMode(e.target.checked)}
-              title="Tocar y guardar todas las teclas sin límite de área"
-              aria-label="Free Mode: tocar todas las teclas"
-            />
-            Free Mode
-          </label>
-          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-            <button onClick={decTranspose} style={{ padding: "4px 10px", borderRadius: 10 }}>–</button>
-            <span style={{ minWidth: 28, textAlign: "center" }}>{transpose}</span>
-            <button onClick={incTranspose} style={{ padding: "4px 10px", borderRadius: 10 }}>+</button>
-          </span>
-        </h2>
-        <div style={{ display: "flex", gap: 0, alignItems: "center" }}>
-          <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
-            <div style={{ width: "min(100%, 900px)" }}>
-              <PianoKeyboard
-                notes={NOTES}
-                labelMode={noteLabelMode}
-                onNoteClick={handleNoteClick}
-                isEnabledNote={freeMode ? (() => true) : ((noteId) => hasFingeringForNote(shiftNote(noteId, -transpose) as NoteId))}
-              />
-            </div>
-          </div>
-          <div style={{ display: "grid", gap: 8, marginTop: "auto", marginBottom: "auto", marginLeft: 12 }}>
-            <button
-              onClick={addSpace}
-              style={{ padding: "10px 10px", borderRadius: 12, width: "80px", height: "80px", whiteSpace: "nowrap", background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
-              title="Insertar un espacio en la canción"
-            >
-              Espacio
-            </button>
-            <button
-              onClick={addLineBreak}
-              style={{ padding: "10px 10px", borderRadius: 12, width: "80px", height: "80px", whiteSpace: "nowrap", background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
-              title="Insertar un salto de línea"
-            >
-              Salto
-            </button>
-          </div>
-        </div>
-
-        <div style={{ opacity: 0.65, fontSize: 13, lineHeight: 1.4 }}>
-          Las digitaciones se leen desde `lib/fingerings.json`.
-        </div>
-
-        <div style={{ height: 4 }} />
-
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 900 }}>
-          Canción
-          {selectedSaved ? (
-            <>
-              <span style={{ fontWeight: 400, opacity: 0.8 }}> — "{selectedSaved}"</span>
-              <button
-                onClick={() => setRenameOpen(true)}
-                title="Renombrar canción"
-                aria-label="Renombrar canción"
-                style={{
-                  marginLeft: 8,
-                  padding: "2px 6px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "transparent",
-                  color: "#eaeaea",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                ✎
-              </button>
-            </>
-          ) : null}
-        </h2>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button
-              onClick={() => {
-                setSong([]);
-                setSelectedId(null);
-                setSelectedSaved("");
-                setTranspose(0);
-              }}
-              style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
-              title="Crear una canción nueva (vacía)"
-            >
-              Nueva canción
-            </button>
-
-            <button
-              onClick={() => {
-                setSaveOpen(true);
-              }}
-              disabled={song.length === 0}
-              style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", opacity: song.length === 0 ? 0.5 : 1, cursor: song.length === 0 ? "not-allowed" : "pointer" }}
-              title="Guardar canción en memoria"
-            >
-              Guardar canción
-            </button>
-
-            <button
-              onClick={() => setPickerOpen(true)}
-              disabled={savedNames.length === 0}
-              style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
-              title={savedNames.length === 0 ? "No hay canciones guardadas" : "Abrir selector de canciones"}
-            >
-              Seleccionar canción
-            </button>
-
-            <button
-              onClick={async () => {
-                if (!selectedSaved) return;
-                const ok = await askConfirm(`¿Eliminar "${selectedSaved}" de la memoria?`);
-                if (!ok) return;
-                removeSong(selectedSaved);
-                const names = listSongNames();
-                setSavedNames(names);
-                setSelectedSaved("");
-                setAllSongs(listSongsWithCategories());
-                setCategories(listCategories());
-              }}
-              disabled={!selectedSaved}
-              style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", opacity: !selectedSaved ? 0.5 : 1, cursor: !selectedSaved ? "not-allowed" : "pointer" }}
-              title="Eliminar canción guardada"
-            >
-              Borrar canción
-            </button>
-          </div>
-
-          <div style={{ marginLeft: "auto" }}>
-            <button
-              onClick={async () => {
-                const base = selectedSaved || "Canción Ocarina";
-                const sign = transpose < 0 ? "−" : "+";
-                const suffix = transpose !== 0 ? ` (T${sign}${Math.abs(transpose)})` : "";
-                setExportLoading(true);
-                try {
-                  await exportSongPdf(displaySong, { labelMode: noteLabelMode, title: base + suffix, transpose });
-                } finally {
-                  setExportLoading(false);
-                }
-              }}
-              disabled={song.length === 0}
-              style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", opacity: song.length === 0 ? 0.5 : 1, cursor: song.length === 0 ? "not-allowed" : "pointer" }}
-            >
-              Exportar PDF
-            </button>
-          </div>
-        </div>
-        <SongTimeline
-          song={displaySong}
-          selectedId={selectedId}
-          onSelect={handleSelectEvent}
-          onRemove={removeEvent}
-          labelMode={noteLabelMode}
-          onReorder={reorderEvent}
-        />
-      </section>
-      <SongPickerSidebar
-        open={pickerOpen}
-        songs={allSongs}
-        onClose={() => setPickerOpen(false)}
-        onPick={(name) => {
-          const loaded = loadSong(name);
-          if (loaded) {
-            setSong(loaded);
-            setSelectedId(null);
-            const t = getSongTranspose(name);
-            setTranspose(t);
-            setSelectedSaved(name);
-          }
-          setPickerOpen(false);
-        }}
-      />
-      <SaveSongModal
-        open={saveOpen}
-        initialName={selectedSaved || ""}
-        categories={categories}
-        onCancel={() => setSaveOpen(false)}
-        onSave={async (name, category) => {
-          if (song.length === 0) {
-            return;
-          }
-          if (hasSong(name)) {
-            const ok = await askConfirm(`La canción "${name}" ya existe. ¿Sobrescribir?`);
-            if (!ok) return;
-          }
-          saveSong(name, song, transpose, category);
-          const names = listSongNames();
-          setSavedNames(names);
-          setSelectedSaved(name);
-          setAllSongs(listSongsWithCategories());
-          setCategories(listCategories());
-          setSaveOpen(false);
-          showToast("Canción guardada");
-        }}
-      />
-      <RenameSongModal
-        open={renameOpen}
-        initialName={selectedSaved || ""}
-        onCancel={() => setRenameOpen(false)}
-        onSave={async (newName) => {
-          const trimmed = (newName || "").trim();
-          if (!trimmed) return;
-          if (!selectedSaved) {
-            setRenameOpen(false);
-            return;
-          }
-          if (selectedSaved !== trimmed && hasSong(trimmed)) {
-            const ok = await askConfirm(`La canción "${trimmed}" ya existe. ¿Sobrescribir?`);
-            if (!ok) return;
-          }
-          renameSong(selectedSaved, trimmed);
-          const names = listSongNames();
-          setSavedNames(names);
-          setSelectedSaved(trimmed);
-          setAllSongs(listSongsWithCategories());
-          setRenameOpen(false);
-          showToast("Nombre actualizado");
-        }}
-      />
       <ErrorModal open={!!errorMsg} message={errorMsg || ""} onClose={() => setErrorMsg(null)} />
       <ConfirmModal
         open={!!confirmMsg}
