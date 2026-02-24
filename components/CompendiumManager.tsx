@@ -87,7 +87,8 @@ export default function CompendiumManager({
 
   const subSortKey = (s: CompendiumSongRef) => ((s.subcategory || "").trim() || (s.category || "").trim() || "Sin categoría").toLowerCase();
   const cmp = (a: CompendiumSongRef, b: CompendiumSongRef) => {
-    const dir = sortDir === "asc" ? 1 : -1;
+    // Nota: por UI/UX pedida, "ascendente" = Z→A y "descendente" = A→Z
+    const dir = sortDir === "asc" ? -1 : 1;
     if (sortField === "subcategory") {
       const ka = subSortKey(a);
       const kb = subSortKey(b);

@@ -61,7 +61,8 @@ export default function SongPickerSidebar({
   const subSortKey = (s: SongRef) => ((s.subcategory || "").trim() || (s.category || "").trim() || "Sin categoría").toLowerCase();
   const nameSortKey = (s: SongRef) => (s.name || "").toLowerCase();
   const cmp = (a: SongRef, b: SongRef) => {
-    const dir = sortDir === "asc" ? 1 : -1;
+    // Nota: por UI/UX pedida, "ascendente" = Z→A y "descendente" = A→Z
+    const dir = sortDir === "asc" ? -1 : 1;
     if (sortField === "subcategory") {
       const ka = subSortKey(a);
       const kb = subSortKey(b);
