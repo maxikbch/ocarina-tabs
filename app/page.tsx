@@ -5,13 +5,13 @@ import { nanoid } from "nanoid";
 import ModeSidebar from "@/components/ModeSidebar";
 import ComposeMode from "@/components/modes/ComposeMode";
 import PlayMode from "@/components/modes/PlayMode";
-import RepertoireMode from "@/components/modes/RepertoireMode";
+import CompendiumManager from "@/components/CompendiumManager";
 import type { Fingering, HoleId, NoteEvent, NoteId } from "@/lib/types";
 import { getFingeringForNote, EMPTY, hasFingeringForNote } from "@/lib/fingerings";
 import { buildChromaticRange, shiftNote } from "@/lib/notes";
 import type { NoteLabelMode } from "@/lib/noteLabels";
 import { createEmptySongDoc, songDocFromStorage, type SongDoc } from "@/lib/songDoc";
-import { listSongNames, saveSongDoc, loadSongDoc, removeSong, hasSong, downloadBundle, getSongTranspose, clearAllSongs, listSongsWithCategories, listCategories, renameSong } from "@/lib/songStore";
+import { listSongNames, saveSongDoc, loadSongDoc, removeSong, hasSong, downloadBundle, getSongTranspose, clearAllSongs, listSongsWithCategories, listCategories, renameSong, renameCategory, renameSubcategory, setSongCategory, setSongSubcategory } from "@/lib/songStore";
 import SongPickerSidebar from "@/components/SongPickerSidebar";
 import SaveSongModal from "@/components/SaveSongModal";
 import RenameSongModal from "@/components/RenameSongModal";
@@ -40,6 +40,8 @@ export default function Page() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
   const confirmResolverRef = useRef<(val: boolean) => void>();
+  const [importChoiceMsg, setImportChoiceMsg] = useState<string | null>(null);
+  const importChoiceResolverRef = useRef<(val: "overwrite" | "rename" | "skip") => void>();
   const [promptState, setPromptState] = useState<{ open: boolean; title: string; label: string; initial: string } | null>(null);
   const promptResolverRef = useRef<(val: string | null) => void>();
   const [exportLoading, setExportLoading] = useState(false);
@@ -57,7 +59,6 @@ export default function Page() {
   const [testMode, setTestMode] = useState<boolean>(false);
   const [freeMode, setFreeMode] = useState<boolean>(false);
   const [mode, setMode] = useState<"tocar" | "componer" | "repertorio">("tocar");
-  const fileRef = useRef<HTMLInputElement>(null);
 
   function docFingerprint(d: SongDoc, t: number): string {
     const sections = Object.keys(d.sectionsById)
@@ -151,8 +152,8 @@ export default function Page() {
     const dd = String(now.getDate()).padStart(2, "0");
     const hh = String(now.getHours()).padStart(2, "0");
     const min = String(now.getMinutes()).padStart(2, "0");
-    const example = `repertorio_ocarina_${yyyy}-${mm}-${dd}_${hh}_${min}.json`;
-    const input = await askPrompt("Descargar repertorio", "Nombre de archivo", example);
+    const example = `compendio_ocarina_${yyyy}-${mm}-${dd}_${hh}_${min}.json`;
+    const input = await askPrompt("Exportar compendio", "Nombre de archivo", example);
     if (input == null) return;
     const chosen = sanitizeFilename((input ?? "").trim()) || example;
     const finalName = chosen.toLowerCase().endsWith(".json") ? chosen : `${chosen}.json`;
@@ -164,8 +165,7 @@ export default function Page() {
     }
   }
 
-  async function handleUploadRepertorio(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  async function handleImportRepertorioFile(file: File) {
     if (!file) return;
     try {
       setImportLoading(true);
@@ -211,6 +211,43 @@ export default function Page() {
         });
       }
 
+      function baseRootName(name: string): string {
+        const trimmed = (name || "").trim();
+        if (!trimmed) return "Canción";
+        const m = trimmed.match(/^(.*?)(?:\s+(\d+))$/);
+        const root = (m?.[1] || trimmed).trim();
+        return root || "Canción";
+      }
+
+      function suggestUniqueName(root: string): string {
+        const base = baseRootName(root);
+        let i = 1;
+        while (true) {
+          const cand = `${base} ${i}`;
+          if (!hasSong(cand)) return cand;
+          i++;
+        }
+      }
+
+      async function askSaveAsName(existingName: string): Promise<string | null> {
+        let proposed = suggestUniqueName(existingName);
+        while (true) {
+          const input = await askPrompt("Guardar con otro nombre", "Nuevo nombre", proposed);
+          if (input == null) return null;
+          const trimmed = (input || "").trim();
+          if (!trimmed) {
+            showToast("Nombre inválido.");
+            continue;
+          }
+          if (hasSong(trimmed)) {
+            showToast(`La canción "${trimmed}" ya existe.`);
+            proposed = suggestUniqueName(trimmed);
+            continue;
+          }
+          return trimmed;
+        }
+      }
+
       let imported = 0;
       for (const [name, payload] of Object.entries(songsAny)) {
         const trimmed = (name || "").trim();
@@ -249,21 +286,88 @@ export default function Page() {
         if (a === b) {
           continue;
         }
-        const ok = await askConfirm(`La canción "${trimmed}" ya existe.\n\nActual:\n${a}\n\nNueva:\n${b}\n\n¿Sobrescribir?`);
-        if (ok) {
+        const choice = await askImportChoice(
+          `La canción "${trimmed}" ya existe.\n\nActual:\n${a}\n\nNueva:\n${b}\n\n¿Qué querés hacer?`
+        );
+        if (choice === "skip") {
+          continue;
+        }
+        if (choice === "overwrite") {
           saveSongDoc(trimmed, incomingDoc, incomingTranspose, incomingCategory, incomingSubcategory);
           imported++;
+          continue;
         }
+        // rename
+        const newName = await askSaveAsName(trimmed);
+        if (!newName) continue;
+        saveSongDoc(newName, incomingDoc, incomingTranspose, incomingCategory, incomingSubcategory);
+        imported++;
       }
       setSavedNames(listSongNames());
       setSelectedSaved("");
       showToast(`Importadas ${imported} canciones`);
     } catch (err) {
-      setErrorMsg("No se pudo leer el archivo de repertorio.");
+      setErrorMsg("No se pudo leer el archivo de compendio.");
     } finally {
       setImportLoading(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
+  }
+
+  function base64UrlToBytes(b64url: string): Uint8Array {
+    const cleaned = (b64url || "").replace(/[\r\n\s]/g, "");
+    const b64 = cleaned.replace(/-/g, "+").replace(/_/g, "/");
+    const padLen = (4 - (b64.length % 4)) % 4;
+    const padded = b64 + "=".repeat(padLen);
+    const bin = atob(padded);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  async function gunzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
+    const DS: any = (globalThis as any).DecompressionStream;
+    if (!DS) throw new Error("Tu navegador no soporta códigos comprimidos (gzip). Probá exportar el código en un navegador moderno.");
+    const ds = new DS("gzip");
+    const stream = new Blob([bytes as unknown as BlobPart]).stream().pipeThrough(ds);
+    const ab = await new Response(stream).arrayBuffer();
+    return new Uint8Array(ab);
+  }
+
+  async function handleImportSongCode(code: string) {
+    const raw = (code || "").trim();
+    if (!raw) throw new Error("Pegá un código.");
+    const isGz = raw.startsWith("OC6GZ:");
+    const isPlain = raw.startsWith("OC6:");
+    if (!isGz && !isPlain) throw new Error("El código debe empezar con OC6: o OC6GZ:.");
+    const payload = raw.split(":")[1] || "";
+    if (!payload) throw new Error("El código parece incompleto.");
+
+    let bytes = base64UrlToBytes(payload);
+    if (isGz) bytes = await gunzipBytes(bytes);
+
+    let parsed: any;
+    try {
+      const json = new TextDecoder().decode(bytes);
+      parsed = JSON.parse(json);
+    } catch {
+      throw new Error("El código no contiene un JSON válido.");
+    }
+    if (!parsed || typeof parsed !== "object") throw new Error("Código inválido.");
+    if (parsed.version !== 6 || !parsed.songs || typeof parsed.songs !== "object") throw new Error("El código no es un compendio v6 válido.");
+    const songNames = Object.keys(parsed.songs);
+    if (songNames.length !== 1) throw new Error("El código debe contener exactamente 1 canción.");
+
+    // Reutiliza el mismo importador (con confirmación de overwrite)
+    await handleImportRepertorioFile(
+      new File([JSON.stringify(parsed)], "codigo.json", { type: "application/json" })
+    );
+  }
+
+  async function handleUploadRepertorio(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleImportRepertorioFile(file);
+    e.currentTarget.value = "";
   }
 
   function sanitizeFilename(name: string): string {
@@ -299,6 +403,12 @@ export default function Page() {
     }, durationMs);
   }
 
+  function refreshSongs() {
+    setSavedNames(listSongNames());
+    setAllSongs(listSongsWithCategories());
+    setCategories(listCategories());
+  }
+
   function askConfirm(message: string): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       confirmResolverRef.current = resolve;
@@ -310,6 +420,13 @@ export default function Page() {
     return new Promise<string | null>((resolve) => {
       setPromptState({ open: true, title, label, initial });
       promptResolverRef.current = resolve;
+    });
+  }
+
+  function askImportChoice(message: string): Promise<"overwrite" | "rename" | "skip"> {
+    return new Promise<"overwrite" | "rename" | "skip">((resolve) => {
+      importChoiceResolverRef.current = resolve;
+      setImportChoiceMsg(message);
     });
   }
   function handleSelectEvent(id: string) {
@@ -339,23 +456,84 @@ export default function Page() {
 
       <div>
         {mode === "repertorio" ? (
-          <RepertoireMode
-            fileRef={fileRef}
-            onDownload={handleDownloadRepertorio}
-            onUploadClick={() => fileRef.current?.click()}
-            onClear={async () => {
-              const ok = await askConfirm("¿Borrar todo el repertorio guardado? Esta acción no se puede deshacer.");
-              if (!ok) return;
-              clearAllSongs();
-              const list = listSongNames();
-              setSavedNames(list);
-              setSelectedSaved("");
-              setAllSongs([]);
-              setCategories([]);
-              showToast("Repertorio borrado.");
-            }}
-            onUploadChange={handleUploadRepertorio}
-          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "calc(100vh - 40px)", minHeight: 0 }}>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <CompendiumManager
+                songs={allSongs}
+                categories={categories}
+                onRefresh={refreshSongs}
+                hasSong={hasSong}
+                onExportAll={handleDownloadRepertorio}
+                onImportFile={handleImportRepertorioFile}
+                onImportSongCode={handleImportSongCode}
+                onClearAll={async () => {
+                  const input = await askPrompt(
+                    "Borrar compendio",
+                    'Escribí "COMPENDIO" para confirmar.\n\nEsto va a borrar TODAS las canciones actuales y no se puede deshacer.',
+                    ""
+                  );
+                  if (input == null) return;
+                  if ((input || "").trim() !== "COMPENDIO") {
+                    showToast("Confirmación inválida. No se borró nada.");
+                    return;
+                  }
+                  clearAllSongs();
+                  setSelectedSaved("");
+                  setAllSongs([]);
+                  setCategories([]);
+                  setSavedNames([]);
+                  showToast("Compendio borrado.");
+                }}
+                onDeleteSong={async (name) => {
+                  const trimmed = (name || "").trim();
+                  if (!trimmed) return;
+                  removeSong(trimmed);
+                  refreshSongs();
+                  setSelectedSaved((cur) => (cur === trimmed ? "" : cur));
+                  showToast("Canción borrada.");
+                }}
+                onDeleteCategory={async (categoryName) => {
+                  const cat = (categoryName || "").trim();
+                  if (!cat) return;
+                  const key = cat === "Otros" ? "" : cat;
+                  const toDelete = listSongsWithCategories().filter((s) => (s.category || "").trim() === (key || "").trim()).map((s) => s.name);
+                  for (const n of toDelete) removeSong(n);
+                  refreshSongs();
+                  if (toDelete.includes(selectedSaved)) setSelectedSaved("");
+                  showToast("Categoría borrada (canciones eliminadas).");
+                }}
+                onDeleteSubcategory={async (subcategoryName) => {
+                  const sub = (subcategoryName || "").trim();
+                  if (!sub) return;
+                  const key = sub === "Sin subcategoría" ? "" : sub;
+                  const toDelete = listSongsWithCategories().filter((s) => (s.subcategory || "").trim() === (key || "").trim()).map((s) => s.name);
+                  for (const n of toDelete) removeSong(n);
+                  refreshSongs();
+                  if (toDelete.includes(selectedSaved)) setSelectedSaved("");
+                  showToast("Subcategoría borrada (canciones eliminadas).");
+                }}
+                askConfirm={askConfirm}
+                showToast={showToast}
+                renameCategory={async (from, to) => {
+                  renameCategory(from, to);
+                }}
+                renameSubcategory={async (from, to) => {
+                  renameSubcategory(from, to);
+                }}
+                renameSong={async (from, to) => {
+                  renameSong(from, to);
+                  // si era la seleccionada, mantener el nombre seleccionado
+                  setSelectedSaved((cur) => (cur === from ? to : cur));
+                }}
+                setSongCategory={async (name, category) => {
+                  setSongCategory(name, category);
+                }}
+                setSongSubcategory={async (name, subcategory) => {
+                  setSongSubcategory(name, subcategory);
+                }}
+              />
+            </div>
+          </div>
         ) : mode === "tocar" ? (
           <PlayMode
             selectedSaved={selectedSaved}
@@ -499,6 +677,83 @@ export default function Page() {
           confirmResolverRef.current?.(true);
         }}
       />
+      {importChoiceMsg ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1165,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.35)",
+          }}
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            setImportChoiceMsg(null);
+            importChoiceResolverRef.current?.("skip");
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 520px)",
+              background: "#1f1f1f",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 12,
+              padding: 16,
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>La canción ya existe</div>
+              <button
+                onClick={() => {
+                  setImportChoiceMsg(null);
+                  importChoiceResolverRef.current?.("skip");
+                }}
+                style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ opacity: 0.9, whiteSpace: "pre-line" }}>{importChoiceMsg}</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <button
+                onClick={() => {
+                  setImportChoiceMsg(null);
+                  importChoiceResolverRef.current?.("skip");
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Omitir
+              </button>
+              <button
+                onClick={() => {
+                  setImportChoiceMsg(null);
+                  importChoiceResolverRef.current?.("rename");
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Guardar con otro nombre
+              </button>
+              <button
+                onClick={() => {
+                  setImportChoiceMsg(null);
+                  importChoiceResolverRef.current?.("overwrite");
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#7a1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Sobrescribir
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {promptState && (
         <PromptModal
           open={true}
@@ -516,7 +771,7 @@ export default function Page() {
         />
       )}
       <LoadingModal open={exportLoading} title="Generando archivo…" />
-      <LoadingModal open={importLoading} title="Importando repertorio…" />
+      <LoadingModal open={importLoading} title="Importando compendio…" />
       {toast && (
         <div
           style={{

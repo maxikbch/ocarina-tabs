@@ -233,7 +233,25 @@ export function exportBundle(): SongNotesBundle {
   return { version: 6, songs };
 }
 
-export function downloadBundle(filename = "repertorio.json") {
+export function exportBundleForNames(names: string[]): SongNotesBundle {
+  const src = readStoreV6();
+  const pick = new Set((names || []).map((n) => (n || "").trim()).filter(Boolean));
+  const songs: Record<string, SongV6Entry> = {};
+  for (const name of pick) {
+    const v = src[name];
+    if (!v) continue;
+    songs[name] = {
+      transpose: v.transpose ?? 0,
+      category: v.category || "",
+      subcategory: v.subcategory || "",
+      sections: v.sections || {},
+      arrangement: v.arrangement || [],
+    };
+  }
+  return { version: 6, songs };
+}
+
+export function downloadBundle(filename = "compendio.json") {
   const data = JSON.stringify(exportBundle(), null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -242,6 +260,52 @@ export function downloadBundle(filename = "repertorio.json") {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+export function downloadBundleForNames(names: string[], filename = "compendio.json") {
+  const data = JSON.stringify(exportBundleForNames(names), null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function base64UrlFromBytes(bytes: Uint8Array): string {
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  const b64 = btoa(bin);
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array | null> {
+  const CS: any = (globalThis as any).CompressionStream;
+  if (!CS) return null;
+  try {
+    const cs = new CS("gzip");
+    const stream = new Blob([bytes as unknown as BlobPart]).stream().pipeThrough(cs);
+    const ab = await new Response(stream).arrayBuffer();
+    return new Uint8Array(ab);
+  } catch {
+    return null;
+  }
+}
+
+export async function makeSongShareCode(name: string): Promise<string | null> {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return null;
+  const bundle = exportBundleForNames([trimmed]);
+  if (!bundle.songs[trimmed]) return null;
+  const json = JSON.stringify(bundle);
+  const raw = new TextEncoder().encode(json);
+  const gz = await gzipBytes(raw);
+  if (gz) return `OC6GZ:${base64UrlFromBytes(gz)}`;
+  return `OC6:${base64UrlFromBytes(raw)}`;
 }
 
 export function clearAllSongs() {
@@ -285,6 +349,44 @@ export function setSongSubcategory(name: string, subcategory: string) {
   if (!store[name]) return;
   store[name].subcategory = (subcategory || "").trim();
   writeStoreV6(store);
+}
+
+export function renameCategory(oldName: string, newName: string) {
+  const from = (oldName || "").trim();
+  const to = (newName || "").trim();
+  if (typeof window === "undefined") return;
+  const store = readStoreV6();
+
+  // Renombrar categoría para todas las canciones que la usen.
+  // Permite `to === ""` para "Sin categoría".
+  let changed = false;
+  for (const v of Object.values(store)) {
+    const cur = (v?.category || "").trim();
+    if (cur === from) {
+      v.category = to;
+      changed = true;
+    }
+  }
+  if (changed) writeStoreV6(store);
+}
+
+export function renameSubcategory(oldName: string, newName: string) {
+  const from = (oldName || "").trim();
+  const to = (newName || "").trim();
+  if (typeof window === "undefined") return;
+  const store = readStoreV6();
+
+  // Renombrar subcategoría para todas las canciones que la usen.
+  // Permite `to === ""` para "Sin subcategoría".
+  let changed = false;
+  for (const v of Object.values(store)) {
+    const cur = (v?.subcategory || "").trim();
+    if (cur === from) {
+      v.subcategory = to;
+      changed = true;
+    }
+  }
+  if (changed) writeStoreV6(store);
 }
 
 export function renameSong(oldName: string, newName: string) {

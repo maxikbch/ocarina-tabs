@@ -156,7 +156,7 @@ export default function ModeSidebar({
         </div>
         <SidebarIconButton active={mode === "tocar"} icon={"▶"} label="Modo: tocar" tooltip="Tocar" onClick={() => onModeChange("tocar")} />
         <SidebarIconButton active={mode === "componer"} icon={"✎"} label="Modo: componer" tooltip="Componer" onClick={() => onModeChange("componer")} />
-        <SidebarIconButton active={mode === "repertorio"} icon={"☰"} label="Modo: repertorio" tooltip="Repertorio" onClick={() => onModeChange("repertorio")} />
+        <SidebarIconButton active={mode === "repertorio"} icon={"☰"} label="Modo: compendio" tooltip="Compendio" onClick={() => onModeChange("repertorio")} />
       </div>
 
       <div style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.12)", display: "grid", gap: 10, justifyItems: "center" }}>
