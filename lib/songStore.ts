@@ -1,22 +1,54 @@
-import type { NoteEvent, NoteId } from "./types";
 import { nanoid } from "nanoid";
-import { getFingeringForNote, EMPTY } from "./fingerings";
+import { songDocFromStorage, songDocToStorage, type SongDoc } from "@/lib/songDoc";
 
+const LS_KEY_V6 = "ocarina.songs.v6";
 const LS_KEY_V5 = "ocarina.songs.v5";
 const LS_KEY_V4 = "ocarina.songs.v4";
 
-type NotesStoreEntry = { notes: string[]; transpose: number; category?: string };
-type NotesStore = Record<string, NotesStoreEntry>;
+type SongV6Entry = {
+  transpose: number;
+  category?: string;
+  subcategory?: string;
+  sections: Record<string, { name: string; notes: string[] }>;
+  arrangement: Array<{ sectionId: string }>;
+};
+type SongsStoreV6 = Record<string, SongV6Entry>;
 
-function readNotesStore(): NotesStore {
+type NotesStoreEntryV5 = { notes: string[]; transpose: number; category?: string };
+type NotesStoreV5 = Record<string, NotesStoreEntryV5>;
+
+function writeStoreV6(store: SongsStoreV6) {
+  if (typeof window === "undefined") return;
+  try {
+    const bundle = { version: 6, songs: store };
+    localStorage.setItem(LS_KEY_V6, JSON.stringify(bundle));
+  } catch {}
+}
+
+function migrateV5ToV6(v5: NotesStoreV5): SongsStoreV6 {
+  const out: SongsStoreV6 = {};
+  for (const [name, entry] of Object.entries(v5 || {})) {
+    const notes = Array.isArray(entry?.notes) ? entry.notes : [];
+    const sectionId = nanoid();
+    out[name] = {
+      transpose: typeof entry?.transpose === "number" ? entry.transpose : 0,
+      category: typeof entry?.category === "string" ? entry.category : "",
+      subcategory: "",
+      sections: { [sectionId]: { name: "General", notes } },
+      arrangement: [{ sectionId }],
+    };
+  }
+  return out;
+}
+
+function readStoreV5(): NotesStoreV5 {
   if (typeof window === "undefined") return {};
   try {
-    // Prefer v5
     const rawV5 = localStorage.getItem(LS_KEY_V5);
     if (rawV5) {
       const p5 = JSON.parse(rawV5) as any;
       if (p5 && p5.version === 5 && p5.songs && typeof p5.songs === "object") {
-        const out: NotesStore = {};
+        const out: NotesStoreV5 = {};
         for (const [k, v] of Object.entries(p5.songs as Record<string, any>)) {
           const entry = v as any;
           out[k] = {
@@ -29,12 +61,11 @@ function readNotesStore(): NotesStore {
       }
     }
 
-    // Fallback: migrate from v4
     const rawV4 = localStorage.getItem(LS_KEY_V4);
     if (rawV4) {
       const p4 = JSON.parse(rawV4) as any;
       if (p4 && p4.version === 4 && p4.songs && typeof p4.songs === "object") {
-        const out: NotesStore = {};
+        const out: NotesStoreV5 = {};
         for (const [k, v] of Object.entries(p4.songs as Record<string, any>)) {
           const entry = v as any;
           out[k] = {
@@ -43,17 +74,19 @@ function readNotesStore(): NotesStore {
             category: typeof entry.category === "string" ? entry.category : "",
           };
         }
-        writeNotesStore(out); // persist as v5
+        // Persist as v5 for compatibility (legacy)
+        try {
+          localStorage.setItem(LS_KEY_V5, JSON.stringify({ version: 5, songs: out }));
+        } catch {}
         return out;
       }
     }
 
-    // Fallback: migrate from v3
     const rawV3 = localStorage.getItem("ocarina.songs.v3");
     if (rawV3) {
       const p3 = JSON.parse(rawV3) as any;
       if (p3 && p3.version === 3 && p3.songs && typeof p3.songs === "object") {
-        const out: NotesStore = {};
+        const out: NotesStoreV5 = {};
         for (const [k, v] of Object.entries(p3.songs as Record<string, any>)) {
           const entry = v as any;
           out[k] = {
@@ -62,27 +95,29 @@ function readNotesStore(): NotesStore {
             category: "",
           };
         }
-        writeNotesStore(out); // persist as v5
+        try {
+          localStorage.setItem(LS_KEY_V5, JSON.stringify({ version: 5, songs: out }));
+        } catch {}
         return out;
       }
     }
 
-    // migrate from v2
     const rawV2 = localStorage.getItem("ocarina.songs.v2");
     if (rawV2) {
       const p2 = JSON.parse(rawV2) as any;
       if (p2 && p2.version === 2 && p2.songs) {
-        const out: NotesStore = {};
+        const out: NotesStoreV5 = {};
         for (const [k, v] of Object.entries(p2.songs as Record<string, any>)) {
           const arr = Array.isArray((v as any).notes) ? ((v as any).notes as string[]) : [];
           out[k] = { notes: arr, transpose: typeof (v as any).transpose === "number" ? (v as any).transpose : 0, category: "" };
         }
-        writeNotesStore(out);
+        try {
+          localStorage.setItem(LS_KEY_V5, JSON.stringify({ version: 5, songs: out }));
+        } catch {}
         return out;
       }
     }
 
-    // migrate from v1 / legacy
     const rawV1 = localStorage.getItem("ocarina.songs.v1");
     if (rawV1) {
       const p1 = JSON.parse(rawV1) as any;
@@ -90,14 +125,16 @@ function readNotesStore(): NotesStore {
       if (p1 && p1.version === 1 && p1.songs) legacy = p1.songs as Record<string, any>;
       else if (p1 && typeof p1 === "object") legacy = p1 as Record<string, any>;
       if (legacy) {
-        const out: NotesStore = {};
+        const out: NotesStoreV5 = {};
         for (const [k, v] of Object.entries(legacy)) {
           if (Array.isArray(v)) {
             const notes = (v as any[]).map((e) => (e && typeof e === "object" ? (e as any).note : null)).filter(Boolean) as string[];
             out[k] = { notes, transpose: 0, category: "" };
           }
         }
-        writeNotesStore(out);
+        try {
+          localStorage.setItem(LS_KEY_V5, JSON.stringify({ version: 5, songs: out }));
+        } catch {}
         return out;
       }
     }
@@ -108,67 +145,92 @@ function readNotesStore(): NotesStore {
   }
 }
 
-function writeNotesStore(store: NotesStore) {
-  if (typeof window === "undefined") return;
+function readStoreV6(): SongsStoreV6 {
+  if (typeof window === "undefined") return {};
   try {
-    const bundle = { version: 5, songs: store };
-    localStorage.setItem(LS_KEY_V5, JSON.stringify(bundle));
-  } catch {}
+    const rawV6 = localStorage.getItem(LS_KEY_V6);
+    if (rawV6) {
+      const p6 = JSON.parse(rawV6) as any;
+      if (p6 && p6.version === 6 && p6.songs && typeof p6.songs === "object") {
+        const out: SongsStoreV6 = {};
+        for (const [k, v] of Object.entries(p6.songs as Record<string, any>)) {
+          const entry = v as any;
+          out[k] = {
+            transpose: typeof entry.transpose === "number" ? entry.transpose : 0,
+            category: typeof entry.category === "string" ? entry.category : "",
+            subcategory: typeof entry.subcategory === "string" ? entry.subcategory : "",
+            sections: entry.sections && typeof entry.sections === "object" ? (entry.sections as any) : {},
+            arrangement: Array.isArray(entry.arrangement) ? (entry.arrangement as any) : [],
+          };
+        }
+        return out;
+      }
+    }
+
+    // Migrate from v5 (or earlier)
+    const v5 = readStoreV5();
+    const migrated = migrateV5ToV6(v5);
+    writeStoreV6(migrated);
+    return migrated;
+  } catch {
+    return {};
+  }
 }
 
 export function listSongNames(): string[] {
-  return Object.keys(readNotesStore()).sort((a, b) => a.localeCompare(b));
+  return Object.keys(readStoreV6()).sort((a, b) => a.localeCompare(b));
 }
 
-// Save base notes (tal cual teclado) + transpose
-export function saveSong(name: string, song: NoteEvent[], transpose: number = 0, category: string = "") {
+export function saveSongDoc(name: string, doc: SongDoc, transpose: number = 0, category: string = "", subcategory: string = "") {
   const trimmed = (name || "").trim();
   if (!trimmed) return;
-  const baseNotes = song.map((e) => e.note);
-  const store = readNotesStore();
-  store[trimmed] = { notes: baseNotes, transpose, category: (category || "").trim() };
-  writeNotesStore(store);
+  const store = readStoreV6();
+  const { sections, arrangement } = songDocToStorage(doc);
+  store[trimmed] = { transpose, category: (category || "").trim(), subcategory: (subcategory || "").trim(), sections, arrangement };
+  writeStoreV6(store);
 }
 
-export function loadSong(name: string): NoteEvent[] | null {
-  const store = readNotesStore();
+export function loadSongDoc(name: string): SongDoc | null {
+  const store = readStoreV6();
   const entry = store[name];
   if (!entry) return null;
-  const { notes } = entry;
-  return notes.map((n) => {
-    const f = getFingeringForNote(n as NoteId, EMPTY);
-    const snapshot: any = typeof structuredClone === "function" ? structuredClone(f) : { ...f };
-    return { id: nanoid(), note: n as string, fingering: snapshot };
-  });
+  const payload = { sections: entry.sections || {}, arrangement: entry.arrangement || [] };
+  return songDocFromStorage(payload);
 }
 
 export function getSongTranspose(name: string): number {
-  const store = readNotesStore();
+  const store = readStoreV6();
   return store[name]?.transpose ?? 0;
 }
 
 export function removeSong(name: string) {
-  const store = readNotesStore();
+  const store = readStoreV6();
   if (store[name]) {
     delete store[name];
-    writeNotesStore(store);
+    writeStoreV6(store);
   }
 }
 
 export function hasSong(name: string): boolean {
-  const store = readNotesStore();
+  const store = readStoreV6();
   return !!store[name];
 }
 
-export type SongNotesBundle = { version: 5; songs: Record<string, { notes: string[]; transpose: number; category?: string }> };
+export type SongNotesBundle = { version: 6; songs: Record<string, SongV6Entry> };
 
 export function exportBundle(): SongNotesBundle {
-  const src = readNotesStore();
-  const songs: Record<string, { notes: string[]; transpose: number; category?: string }> = {};
+  const src = readStoreV6();
+  const songs: Record<string, SongV6Entry> = {};
   for (const [k, v] of Object.entries(src)) {
-    songs[k] = { notes: v.notes || [], transpose: v.transpose ?? 0, category: v.category || "" };
+    songs[k] = {
+      transpose: v.transpose ?? 0,
+      category: v.category || "",
+      subcategory: v.subcategory || "",
+      sections: v.sections || {},
+      arrangement: v.arrangement || [],
+    };
   }
-  return { version: 5, songs };
+  return { version: 6, songs };
 }
 
 export function downloadBundle(filename = "repertorio.json") {
@@ -185,24 +247,24 @@ export function downloadBundle(filename = "repertorio.json") {
 export function clearAllSongs() {
   if (typeof window === "undefined") return;
   try {
+    localStorage.removeItem(LS_KEY_V6);
     localStorage.removeItem(LS_KEY_V5);
     localStorage.removeItem(LS_KEY_V4);
-    // limpiar versiones anteriores por si existen
     localStorage.removeItem("ocarina.songs.v3");
     localStorage.removeItem("ocarina.songs.v2");
     localStorage.removeItem("ocarina.songs.v1");
   } catch {}
 }
 
-export function listSongsWithCategories(): Array<{ name: string; category: string }> {
-  const store = readNotesStore();
+export function listSongsWithCategories(): Array<{ name: string; category: string; subcategory: string }> {
+  const store = readStoreV6();
   return Object.keys(store)
-    .map((n) => ({ name: n, category: store[n]?.category || "" }))
+    .map((n) => ({ name: n, category: store[n]?.category || "", subcategory: store[n]?.subcategory || "" }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function listCategories(): string[] {
-  const store = readNotesStore();
+  const store = readStoreV6();
   const set = new Set<string>();
   for (const v of Object.values(store)) {
     const c = (v?.category || "").trim();
@@ -212,24 +274,30 @@ export function listCategories(): string[] {
 }
 
 export function setSongCategory(name: string, category: string) {
-  const store = readNotesStore();
+  const store = readStoreV6();
   if (!store[name]) return;
   store[name].category = (category || "").trim();
-  writeNotesStore(store);
+  writeStoreV6(store);
+}
+
+export function setSongSubcategory(name: string, subcategory: string) {
+  const store = readStoreV6();
+  if (!store[name]) return;
+  store[name].subcategory = (subcategory || "").trim();
+  writeStoreV6(store);
 }
 
 export function renameSong(oldName: string, newName: string) {
   const from = (oldName || "").trim();
   const to = (newName || "").trim();
   if (!from || !to) return;
-  const store = readNotesStore();
+  const store = readStoreV6();
   if (!store[from]) return;
   const payload = store[from];
-  // mover/overwrites si ya existe
   store[to] = payload;
   if (from !== to) {
     delete store[from];
   }
-  writeNotesStore(store);
+  writeStoreV6(store);
 }
 

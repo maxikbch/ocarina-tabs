@@ -9,7 +9,7 @@ export default function RepertoireMode({
   onClear,
   onUploadChange,
 }: {
-  fileRef: React.RefObject<HTMLInputElement | null>;
+  fileRef: React.RefObject<HTMLInputElement>;
   onDownload: () => void;
   onUploadClick: () => void;
   onClear: () => void | Promise<void>;

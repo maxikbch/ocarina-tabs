@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 
-export type SongRef = { name: string; category: string };
+export type SongRef = { name: string; category: string; subcategory: string };
 
 export default function SongPickerSidebar({
   open,
@@ -13,7 +13,7 @@ export default function SongPickerSidebar({
   open: boolean;
   songs: SongRef[];
   onClose: () => void;
-  onPick: (name: string) => void;
+  onPick: (name: string) => boolean | Promise<boolean>;
 }) {
   const [query, setQuery] = useState("");
   const [allMode, setAllMode] = useState(false);
@@ -40,26 +40,30 @@ export default function SongPickerSidebar({
 
   const normalizedQuery = query.trim().toLowerCase();
 
+  function matchesQuery(s: SongRef, q: string): boolean {
+    if (!q) return true;
+    const name = (s.name || "").toLowerCase();
+    const sub = (s.subcategory || "").toLowerCase();
+    return name.includes(q) || sub.includes(q);
+  }
+
+  // "All" implícito: fuera de categorías + query no vacío => mostrar canciones directamente
+  const effectiveAllMode = allMode || (currentCategory == null && !allMode && !!normalizedQuery);
+
   const filteredAll = useMemo(() => {
-    const arr = normalizedQuery
-      ? songs.filter(
-          (s) =>
-            s.name.toLowerCase().includes(normalizedQuery) ||
-            (s.category || "").toLowerCase().includes(normalizedQuery)
-        )
-      : songs;
+    const arr = normalizedQuery ? songs.filter((s) => matchesQuery(s, normalizedQuery)) : songs;
     return arr.slice().sort((a, b) => a.name.localeCompare(b.name));
   }, [songs, normalizedQuery]);
 
   const filteredCategories = useMemo(() => {
+    // Buscar NO por nombre de categoría, sino por canciones dentro (nombre/subcategoría)
     const arr = normalizedQuery
-      ? categories.filter(
-          (c) =>
-            c.toLowerCase().includes(normalizedQuery) ||
-            (c === "Otros"
-              ? songs.some((s) => (s.category || "") === "" && s.name.toLowerCase().includes(normalizedQuery))
-              : songs.some((s) => s.category === c && s.name.toLowerCase().includes(normalizedQuery)))
-        )
+      ? categories.filter((c) => {
+          const cat = c === "Otros" ? "" : c;
+          return songs
+            .filter((s) => (s.category || "") === cat)
+            .some((s) => matchesQuery(s, normalizedQuery));
+        })
       : categories;
     return arr;
   }, [categories, songs, normalizedQuery]);
@@ -67,12 +71,20 @@ export default function SongPickerSidebar({
   const filteredSongsInCategory = useMemo(() => {
     const list = songs.filter((s) => s.category === (currentCategory || ""));
     const arr = normalizedQuery
-      ? list.filter((s) => s.name.toLowerCase().includes(normalizedQuery))
+      ? list.filter((s) => matchesQuery(s, normalizedQuery))
       : list;
     return arr.slice().sort((a, b) => a.name.localeCompare(b.name));
   }, [songs, currentCategory, normalizedQuery]);
 
   if (!open) return null;
+
+  const secondaryLabel = (s: SongRef): string => {
+    const sub = (s.subcategory || "").trim();
+    if (sub) return sub;
+    const cat = (s.category || "").trim();
+    if (cat) return cat;
+    return "Sin categoría";
+  };
 
   return (
     <div
@@ -115,7 +127,7 @@ export default function SongPickerSidebar({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar por canción o categoría…"
+            placeholder="Buscar por canción o subcategoría…"
             style={{
               flex: 1,
               padding: "8px 10px",
@@ -153,15 +165,15 @@ export default function SongPickerSidebar({
             alignItems: "stretch",
           }}
         >
-          {allMode ? (
+          {effectiveAllMode ? (
             filteredAll.length === 0 ? (
               <div style={{ opacity: 0.6 }}>Sin resultados.</div>
             ) : (
               filteredAll.map((s) => (
                 <button
                   key={s.name}
-                  onClick={() => {
-                    onPick(s.name);
+                  onClick={async () => {
+                    await onPick(s.name);
                     onClose();
                   }}
                   style={{
@@ -178,13 +190,13 @@ export default function SongPickerSidebar({
                     alignItems: "flex-start",
                     justifyContent: "center",
                   }}
-                  title={s.category ? `Categoría: ${s.category}` : "Sin categoría"}
+                  title={(s.subcategory || "").trim() ? `Subcategoría: ${s.subcategory}` : (s.category || "").trim() ? `Categoría: ${s.category}` : "Sin categoría"}
                 >
                   <div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
                     {s.name}
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
-                    {s.category || "Sin categoría"}
+                    {secondaryLabel(s)}
                   </div>
                 </button>
               ))
@@ -245,8 +257,8 @@ export default function SongPickerSidebar({
                 filteredSongsInCategory.map((s) => (
                   <button
                     key={s.name}
-                    onClick={() => {
-                      onPick(s.name);
+                    onClick={async () => {
+                      await onPick(s.name);
                       onClose();
                     }}
                     style={{
@@ -268,7 +280,7 @@ export default function SongPickerSidebar({
                       {s.name}
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
-                      {s.category || "Sin categoría"}
+                      {secondaryLabel(s)}
                     </div>
                   </button>
                 ))

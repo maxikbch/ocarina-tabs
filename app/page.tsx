@@ -8,10 +8,10 @@ import PlayMode from "@/components/modes/PlayMode";
 import RepertoireMode from "@/components/modes/RepertoireMode";
 import type { Fingering, HoleId, NoteEvent, NoteId } from "@/lib/types";
 import { getFingeringForNote, EMPTY, hasFingeringForNote } from "@/lib/fingerings";
-import { exportSongPdf } from "@/lib/exportPdf";
 import { buildChromaticRange, shiftNote } from "@/lib/notes";
 import type { NoteLabelMode } from "@/lib/noteLabels";
-import { listSongNames, saveSong, loadSong, removeSong, hasSong, downloadBundle, getSongTranspose, clearAllSongs, listSongsWithCategories, listCategories, renameSong } from "@/lib/songStore";
+import { createEmptySongDoc, songDocFromStorage, type SongDoc } from "@/lib/songDoc";
+import { listSongNames, saveSongDoc, loadSongDoc, removeSong, hasSong, downloadBundle, getSongTranspose, clearAllSongs, listSongsWithCategories, listCategories, renameSong } from "@/lib/songStore";
 import SongPickerSidebar from "@/components/SongPickerSidebar";
 import SaveSongModal from "@/components/SaveSongModal";
 import RenameSongModal from "@/components/RenameSongModal";
@@ -25,13 +25,13 @@ export default function Page() {
   // Podés cambiar esto por el rango real de tu ocarina
   const NOTES = useMemo(() => buildChromaticRange({ from: "C4", to: "C6" }), []);
 
-  const [song, setSong] = useState<NoteEvent[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [doc, setDoc] = useState<SongDoc>(() => createEmptySongDoc());
+  const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
   const [noteLabelMode, setNoteLabelMode] = useState<NoteLabelMode>("latin");
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [selectedSaved, setSelectedSaved] = useState<string>("");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [allSongs, setAllSongs] = useState<Array<{ name: string; category: string }>>([]);
+  const [allSongs, setAllSongs] = useState<Array<{ name: string; category: string; subcategory: string }>>([]);
   const [saveOpen, setSaveOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -44,8 +44,7 @@ export default function Page() {
   const promptResolverRef = useRef<(val: string | null) => void>();
   const [exportLoading, setExportLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
-
-  const selected = song.find((x) => x.id === selectedId);
+  const [baselineFp, setBaselineFp] = useState<string>(() => "");
 
   useEffect(() => {
     setSavedNames(listSongNames());
@@ -58,11 +57,57 @@ export default function Page() {
   const [testMode, setTestMode] = useState<boolean>(false);
   const [freeMode, setFreeMode] = useState<boolean>(false);
   const [mode, setMode] = useState<"tocar" | "componer" | "repertorio">("tocar");
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function docFingerprint(d: SongDoc, t: number): string {
+    const sections = Object.keys(d.sectionsById)
+      .sort((a, b) => a.localeCompare(b))
+      .map((id) => {
+        const s = d.sectionsById[id];
+        return { id, name: s?.name ?? "", notes: (s?.items || []).map((it) => it.note) };
+      });
+    const arrangement = (d.arrangement || []).map((x) => x.sectionId);
+    return JSON.stringify({ v: 1, t, arrangement, sections });
+  }
+
+  useEffect(() => {
+    // baseline inicial = estado inicial de doc+transpose
+    setBaselineFp((cur) => (cur ? cur : docFingerprint(doc, transpose)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const isDirty = useMemo(() => {
+    if (!baselineFp) return false;
+    return docFingerprint(doc, transpose) !== baselineFp;
+  }, [doc, transpose, baselineFp]);
+
+  async function confirmLoseChanges(actionLabel: string): Promise<boolean> {
+    if (mode !== "componer") return true;
+    if (!isDirty) return true;
+    return await askConfirm(`La canción actual tiene cambios sin guardar.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`);
+  }
+
+  const flatSong = useMemo(() => {
+    const events: NoteEvent[] = [];
+    const idToRef: Record<string, { sectionId: string; itemId: string }> = {};
+    for (const inst of doc.arrangement) {
+      const sec = doc.sectionsById[inst.sectionId];
+      if (!sec) continue;
+      for (const item of sec.items) {
+        const id = `${inst.id}:${item.id}`;
+        idToRef[id] = { sectionId: sec.id, itemId: item.id };
+        const baseNote = item.note;
+        const baseF = getFingeringForNote(baseNote as NoteId, EMPTY);
+        const snapshot: Fingering = typeof structuredClone === "function" ? structuredClone(baseF) : { ...baseF };
+        events.push({ id, note: baseNote as any, fingering: snapshot });
+      }
+    }
+    return { events, idToRef };
+  }, [doc]);
 
   const displaySong = useMemo<NoteEvent[]>(() => {
-    if (!transpose) return song;
-    return song.map((ev) => {
+    if (!transpose) return flatSong.events;
+    return flatSong.events.map((ev) => {
       if (ev.note === "—" || ev.note === "SPACE" || ev.note === "⏎" || ev.note === "BR" || ev.note === "SALTO") {
         return ev;
       }
@@ -71,7 +116,22 @@ export default function Page() {
       const snapshot: Fingering = typeof structuredClone === "function" ? structuredClone(f) : { ...f };
       return { ...ev, note: shownNote, fingering: snapshot };
     });
-  }, [song, transpose]);
+  }, [flatSong.events, transpose]);
+
+  const playSections = useMemo(() => {
+    const byId = new Map<string, NoteEvent>();
+    for (const ev of displaySong) byId.set(ev.id, ev);
+    return doc.arrangement
+      .map((inst) => {
+        const sec = doc.sectionsById[inst.sectionId];
+        if (!sec) return null;
+        const events = sec.items
+          .map((it) => byId.get(`${inst.id}:${it.id}`))
+          .filter(Boolean) as NoteEvent[];
+        return { instanceId: inst.id, name: sec.name, events };
+      })
+      .filter(Boolean) as Array<{ instanceId: string; name: string; events: NoteEvent[] }>;
+  }, [doc, displaySong]);
 
   function incTranspose() {
     setTranspose((t) => t + 1);
@@ -80,36 +140,8 @@ export default function Page() {
     setTranspose((t) => t - 1);
   }
 
-  // En freeMode mantenemos el mismo rango visual (3 áreas). Solo cambia la habilitación.
-
-  async function handleNoteClick(note: string) {
-    // Reproducir preview
-    await play(note, 0.6);
-    // Test Mode: no guardar notas
-    if (testMode) {
-      return;
-    }
-    // Guardar base = nota + transposición (evita el doble efecto en la vista)
-    const storedNote = shiftNote(note, 0);
-    const baseF = getFingeringForNote(storedNote as NoteId, EMPTY);
-    const snapshot: Fingering = typeof structuredClone === "function" ? structuredClone(baseF) : { ...baseF };
-    const ev: NoteEvent = { id: nanoid(), note: storedNote, fingering: snapshot };
-    setSong((s) => {
-      if (selectedId) {
-        const idx = s.findIndex((x) => x.id === selectedId);
-        if (idx >= 0) {
-          const copy = [...s];
-          copy.splice(idx + 1, 0, ev);
-          return copy;
-        }
-      }
-      return [...s, ev];
-    });
-    setSelectedId(ev.id);
-  }
-
-  function notesString(arr: NoteEvent[]): string {
-    return arr.map((e) => e.note).join(" ");
+  function flatNotesStringFromStore(notes: string[]): string {
+    return (notes || []).join(" ");
   }
 
   async function handleDownloadRepertorio() {
@@ -140,7 +172,11 @@ export default function Page() {
       const text = await file.text();
       const parsed = JSON.parse(text) as any;
       let songsAny: any = null;
-      if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 4 && parsed.songs) {
+      if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 6 && parsed.songs) {
+        songsAny = parsed.songs;
+      } else if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 5 && parsed.songs) {
+        songsAny = parsed.songs as Record<string, { notes: string[]; transpose?: number }>;
+      } else if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 4 && parsed.songs) {
         songsAny = parsed.songs as Record<string, { notes: string[]; transpose?: number }>;
       } else if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 3 && parsed.songs) {
         songsAny = parsed.songs as Record<string, { notes: string[]; transpose?: number }>;
@@ -155,51 +191,67 @@ export default function Page() {
         setErrorMsg("Archivo inválido.");
         return;
       }
+
+      function flattenNotesFromDoc(d: SongDoc): string[] {
+        const out: string[] = [];
+        for (const inst of d.arrangement) {
+          const sec = d.sectionsById[inst.sectionId];
+          if (!sec) continue;
+          for (const it of sec.items) out.push(it.note);
+        }
+        return out;
+      }
+
+      function docFromNotes(notes: string[]): SongDoc {
+        // Build via storage roundtrip for simplicity
+        const realSid = nanoid();
+        return songDocFromStorage({
+          sections: { [realSid]: { name: "General", notes: notes || [] } },
+          arrangement: [{ sectionId: realSid }],
+        });
+      }
+
       let imported = 0;
       for (const [name, payload] of Object.entries(songsAny)) {
-        let incomingNotes: string[] | null = null;
+        const trimmed = (name || "").trim();
+        if (!trimmed) continue;
+
+        let incomingDoc: SongDoc | null = null;
         let incomingTranspose: number = 0;
+        let incomingCategory: string = "";
+        let incomingSubcategory: string = "";
+
         if (payload && Array.isArray(payload)) {
-          // legacy events array
-          incomingNotes = (payload as any[]).map((e) => (e && typeof e === "object" ? (e as any).note : null)).filter(Boolean) as string[];
+          const incomingNotes = (payload as any[]).map((e) => (e && typeof e === "object" ? (e as any).note : null)).filter(Boolean) as string[];
+          incomingDoc = docFromNotes(incomingNotes);
         } else if (payload && typeof payload === "object") {
-          if (Array.isArray((payload as any).notes)) {
-            incomingNotes = (payload as any).notes as string[];
+          if ((payload as any).sections && (payload as any).arrangement) {
+            incomingDoc = songDocFromStorage({ sections: (payload as any).sections, arrangement: (payload as any).arrangement });
+          } else if (Array.isArray((payload as any).notes)) {
+            incomingDoc = docFromNotes((payload as any).notes as string[]);
           }
-          if (typeof (payload as any).transpose === "number") {
-            incomingTranspose = (payload as any).transpose as number;
-          }
+          if (typeof (payload as any).transpose === "number") incomingTranspose = (payload as any).transpose as number;
+          if (typeof (payload as any).category === "string") incomingCategory = (payload as any).category as string;
+          if (typeof (payload as any).subcategory === "string") incomingSubcategory = (payload as any).subcategory as string;
         }
-        if (!incomingNotes) continue;
+        if (!incomingDoc) continue;
 
-        const existing = loadSong(name);
-        const a = existing ? notesString(existing) : "";
-        const b = incomingNotes.join(" ");
+        const existingDoc = loadSongDoc(trimmed);
+        const a = existingDoc ? flatNotesStringFromStore(flattenNotesFromDoc(existingDoc)) : "";
+        const b = flatNotesStringFromStore(flattenNotesFromDoc(incomingDoc));
 
-        if (!existing) {
-          // crear desde notas -> eventos y guardar
-          const events: NoteEvent[] = incomingNotes.map((n) => {
-            const base = getFingeringForNote(n as NoteId, EMPTY);
-            const snapshot: Fingering = typeof structuredClone === "function" ? structuredClone(base) : { ...base };
-            return { id: nanoid(), note: n, fingering: snapshot };
-          });
-          saveSong(name, events, incomingTranspose);
+        if (!existingDoc) {
+          saveSongDoc(trimmed, incomingDoc, incomingTranspose, incomingCategory, incomingSubcategory);
           imported++;
           continue;
         }
 
         if (a === b) {
-          // idénticas: omitir
           continue;
         }
-        const ok = await askConfirm(`La canción "${name}" ya existe.\n\nActual:\n${a}\n\nNueva:\n${b}\n\n¿Sobrescribir?`);
+        const ok = await askConfirm(`La canción "${trimmed}" ya existe.\n\nActual:\n${a}\n\nNueva:\n${b}\n\n¿Sobrescribir?`);
         if (ok) {
-          const events: NoteEvent[] = incomingNotes.map((n) => {
-            const base = getFingeringForNote(n as NoteId, EMPTY);
-            const snapshot: Fingering = typeof structuredClone === "function" ? structuredClone(base) : { ...base };
-            return { id: nanoid(), note: n, fingering: snapshot };
-          });
-          saveSong(name, events, incomingTranspose);
+          saveSongDoc(trimmed, incomingDoc, incomingTranspose, incomingCategory, incomingSubcategory);
           imported++;
         }
       }
@@ -219,128 +271,20 @@ export default function Page() {
   }
 
   function removeEvent(id: string) {
-    setSong((s) => s.filter((x) => x.id !== id));
-    setSelectedId((cur) => (cur === id ? null : cur));
-  }
-
-  function addSpace() {
-    // Si hay selección y es especial, decidir según el tipo
-    if (selectedId) {
-      const idx = song.findIndex((x) => x.id === selectedId);
-      if (idx >= 0) {
-        const cur = song[idx];
-        const isSpace = cur.note === "—" || cur.note === "SPACE";
-        const isBreak = cur.note === "⏎" || cur.note === "BR" || cur.note === "SALTO";
-        if (isSpace) {
-          // mismo componente: insertar otro espacio después
-          const ev: NoteEvent = { id: nanoid(), note: "—", fingering: EMPTY };
-          setSong((s) => {
-            const copy = [...s];
-            copy.splice(idx + 1, 0, ev);
-            return copy;
-          });
-          setSelectedId(ev.id);
-          return;
-        }
-        if (isBreak) {
-          // reemplazar por espacio
-          const ev: NoteEvent = { id: nanoid(), note: "—", fingering: EMPTY };
-          setSong((s) => {
-            const copy = [...s];
-            copy[idx] = ev;
-            return copy;
-          });
-          setSelectedId(ev.id);
-          return;
-        }
-        // selección es una nota normal: insertar después
-        const ev: NoteEvent = { id: nanoid(), note: "—", fingering: EMPTY };
-        setSong((s) => {
-          const copy = [...s];
-          copy.splice(idx + 1, 0, ev);
-          return copy;
-        });
-        setSelectedId(ev.id);
-        return;
-      }
-    }
-    // Comportamiento normal: agregar al final
-    const ev: NoteEvent = { id: nanoid(), note: "—", fingering: EMPTY };
-    setSong((s) => [...s, ev]);
-    setSelectedId(ev.id);
-  }
-
-  function addLineBreak() {
-    // Si hay selección y es especial, decidir según el tipo
-    if (selectedId) {
-      const idx = song.findIndex((x) => x.id === selectedId);
-      if (idx >= 0) {
-        const cur = song[idx];
-        const isSpace = cur.note === "—" || cur.note === "SPACE";
-        const isBreak = cur.note === "⏎" || cur.note === "BR" || cur.note === "SALTO";
-        if (isBreak) {
-          // mismo componente: insertar otro salto después
-          const ev: NoteEvent = { id: nanoid(), note: "⏎", fingering: EMPTY };
-          setSong((s) => {
-            const copy = [...s];
-            copy.splice(idx + 1, 0, ev);
-            return copy;
-          });
-          setSelectedId(ev.id);
-          return;
-        }
-        if (isSpace) {
-          // reemplazar por salto
-          const ev: NoteEvent = { id: nanoid(), note: "⏎", fingering: EMPTY };
-          setSong((s) => {
-            const copy = [...s];
-            copy[idx] = ev;
-            return copy;
-          });
-          setSelectedId(ev.id);
-          return;
-        }
-        // selección es una nota normal: insertar después
-        const ev: NoteEvent = { id: nanoid(), note: "⏎", fingering: EMPTY };
-        setSong((s) => {
-          const copy = [...s];
-          copy.splice(idx + 1, 0, ev);
-          return copy;
-        });
-        setSelectedId(ev.id);
-        return;
-      }
-    }
-    // Comportamiento normal: agregar al final
-    const ev: NoteEvent = { id: nanoid(), note: "⏎", fingering: EMPTY };
-    setSong((s) => [...s, ev]);
-    setSelectedId(ev.id);
-  }
-
-  function moveEvent(id: string, dir: -1 | 1) {
-    setSong((s) => {
-      const i = s.findIndex((x) => x.id === id);
-      const j = i + dir;
-      if (i < 0 || j < 0 || j >= s.length) return s;
-      const copy = [...s];
-      const tmp = copy[i];
-      copy[i] = copy[j];
-      copy[j] = tmp;
-      return copy;
+    const ref = flatSong.idToRef[id];
+    if (!ref) return;
+    setDoc((cur) => {
+      const next: SongDoc = { ...cur, sectionsById: structuredClone(cur.sectionsById), arrangement: cur.arrangement.map((x) => ({ ...x })) };
+      const sec = next.sectionsById[ref.sectionId];
+      if (!sec) return cur;
+      sec.items = sec.items.filter((x) => x.id !== ref.itemId);
+      return next;
     });
+    setSelectedPlayId((cur) => (cur === id ? null : cur));
   }
 
-  function reorderEvent(sourceId: string, targetIndex: number) {
-    setSong((s) => {
-      const from = s.findIndex((x) => x.id === sourceId);
-      if (from < 0) return s;
-      const clampedTarget = Math.max(0, Math.min(targetIndex, s.length - 1));
-      const arr = [...s];
-      const [item] = arr.splice(from, 1);
-      const insertIndex = from < clampedTarget ? clampedTarget : clampedTarget;
-      arr.splice(insertIndex, 0, item);
-      return arr;
-    });
+  function reorderEvent(_sourceId: string, _targetIndex: number) {
+    // TODO: reordenamiento en modo tocar se actualizará luego (por ahora no-op)
   }
 
   function showToast(message: string, durationMs = 2500) {
@@ -370,11 +314,11 @@ export default function Page() {
   }
   function handleSelectEvent(id: string) {
     // Si clickean la misma nota ya seleccionada o llega vacío, desseleccionar y no sonar
-    if (!id || id === selectedId) {
-      setSelectedId(null);
+    if (!id || id === selectedPlayId) {
+      setSelectedPlayId(null);
       return;
     }
-    setSelectedId(id);
+    setSelectedPlayId(id);
     const ev = displaySong.find((x) => x.id === id);
     if (!ev) return;
     if (ev.note === "—" || ev.note === "SPACE" || ev.note === "⏎" || ev.note === "BR" || ev.note === "SALTO") {
@@ -417,8 +361,8 @@ export default function Page() {
             selectedSaved={selectedSaved}
             savedNamesCount={savedNames.length}
             onOpenPicker={() => setPickerOpen(true)}
-            song={displaySong}
-            selectedId={selectedId}
+            sections={playSections}
+            selectedId={selectedPlayId}
             onSelectEvent={handleSelectEvent}
             onRemoveEvent={removeEvent}
             onReorderEvent={reorderEvent}
@@ -428,6 +372,8 @@ export default function Page() {
           <ComposeMode
             notes={NOTES}
             noteLabelMode={noteLabelMode}
+            doc={doc}
+            onDocChange={setDoc}
             testMode={testMode}
             freeMode={freeMode}
             transpose={transpose}
@@ -435,18 +381,22 @@ export default function Page() {
             onFreeModeChange={setFreeMode}
             onTransposeDec={decTranspose}
             onTransposeInc={incTranspose}
-            onNoteClick={handleNoteClick}
             isEnabledNote={freeMode ? (() => true) : ((noteId) => hasFingeringForNote(shiftNote(noteId, -transpose) as NoteId))}
-            onAddSpace={addSpace}
-            onAddLineBreak={addLineBreak}
+            onPreviewNote={(n) => play(n, 0.6)}
             selectedSaved={selectedSaved}
             savedNamesCount={savedNames.length}
-            songLength={song.length}
+            songLength={flatSong.events.length}
             onNewSong={() => {
-              setSong([]);
-              setSelectedId(null);
-              setSelectedSaved("");
-              setTranspose(0);
+              void (async () => {
+                const ok = await confirmLoseChanges("Nueva canción");
+                if (!ok) return;
+                const fresh = createEmptySongDoc();
+                setDoc(fresh);
+                setSelectedPlayId(null);
+                setSelectedSaved("");
+                setTranspose(0);
+                setBaselineFp(docFingerprint(fresh, 0));
+              })();
             }}
             onOpenSave={() => setSaveOpen(true)}
             onOpenPicker={() => setPickerOpen(true)}
@@ -462,38 +412,27 @@ export default function Page() {
               setCategories(listCategories());
             }}
             onOpenRename={() => setRenameOpen(true)}
-            onExportPdf={async () => {
-              const base = selectedSaved || "Canción Ocarina";
-              const sign = transpose < 0 ? "−" : "+";
-              const suffix = transpose !== 0 ? ` (T${sign}${Math.abs(transpose)})` : "";
-              setExportLoading(true);
-              try {
-                await exportSongPdf(displaySong, { labelMode: noteLabelMode, title: base + suffix, transpose });
-              } finally {
-                setExportLoading(false);
-              }
-            }}
-            displaySong={displaySong}
-            selectedId={selectedId}
-            onSelectEvent={handleSelectEvent}
-            onRemoveEvent={removeEvent}
-            onReorderEvent={reorderEvent}
           />
         )}
         <SongPickerSidebar
           open={pickerOpen}
           songs={allSongs}
           onClose={() => setPickerOpen(false)}
-          onPick={(name) => {
-            const loaded = loadSong(name);
+          onPick={async (name) => {
+            if (mode === "componer" && name !== selectedSaved) {
+              const ok = await confirmLoseChanges(`Seleccionar "${name}"`);
+              if (!ok) return false;
+            }
+            const loaded = loadSongDoc(name);
             if (loaded) {
-              setSong(loaded);
-              setSelectedId(null);
+              setDoc(loaded);
+              setSelectedPlayId(null);
               const t = getSongTranspose(name);
               setTranspose(t);
               setSelectedSaved(name);
+              setBaselineFp(docFingerprint(loaded, t));
             }
-            setPickerOpen(false);
+            return true;
           }}
         />
         <SaveSongModal
@@ -501,16 +440,18 @@ export default function Page() {
           initialName={selectedSaved || ""}
           categories={categories}
           initialCategory={(allSongs.find((s) => s.name === selectedSaved)?.category || "")}
+          initialSubcategory={(allSongs.find((s) => s.name === selectedSaved)?.subcategory || "")}
           onCancel={() => setSaveOpen(false)}
-          onSave={async (name, category) => {
-            if (song.length === 0) {
+          onSave={async (name, category, subcategory) => {
+            if (flatSong.events.length === 0) {
               return;
             }
             if (hasSong(name)) {
               const ok = await askConfirm(`La canción "${name}" ya existe. ¿Sobrescribir?`);
               if (!ok) return;
             }
-            saveSong(name, song, transpose, category);
+            saveSongDoc(name, doc, transpose, category, subcategory);
+            setBaselineFp(docFingerprint(doc, transpose));
             const names = listSongNames();
             setSavedNames(names);
             setSelectedSaved(name);

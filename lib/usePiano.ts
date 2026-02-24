@@ -17,7 +17,7 @@ export function usePiano() {
     Soundfont.instrument(ac, "acoustic_grand_piano", {
       soundfont: "FluidR3_GM",
       format: "mp3",
-      nameToUrl: (name, sf, format) =>
+      nameToUrl: (name: string, sf: string, format: string) =>
         `https://gleitz.github.io/midi-js-soundfonts/${sf}/${name}-${format}.js`,
     }).then((inst) => {
       instrumentRef.current = inst;
@@ -51,7 +51,7 @@ export function usePiano() {
       const ac = audioRef.current;
       if (!inst || !ac || !ready) return;
       const when = ac.currentTime;
-      inst.play(note, when, { gain: 0.9, duration: durationSec }).onended = () => {};
+      inst.play(note, when, { gain: 0.9, duration: durationSec });
     },
     [ready, ensureAudioStarted]
   );

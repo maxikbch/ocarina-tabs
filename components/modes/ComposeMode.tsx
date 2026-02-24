@@ -1,14 +1,16 @@
 "use client";
 
 import React from "react";
-import PianoKeyboard from "@/components/PianoKeyboard";
-import SongTimeline from "@/components/SongTimeline";
+import ComposerWorkspace from "@/components/ComposerWorkspace";
 import type { NoteLabelMode } from "@/lib/noteLabels";
-import type { NoteEvent, NoteId } from "@/lib/types";
+import type { NoteId } from "@/lib/types";
+import type { SongDoc } from "@/lib/songDoc";
 
 export default function ComposeMode({
   notes,
   noteLabelMode,
+  doc,
+  onDocChange,
   testMode,
   freeMode,
   transpose,
@@ -16,10 +18,8 @@ export default function ComposeMode({
   onFreeModeChange,
   onTransposeDec,
   onTransposeInc,
-  onNoteClick,
   isEnabledNote,
-  onAddSpace,
-  onAddLineBreak,
+  onPreviewNote,
   selectedSaved,
   savedNamesCount,
   songLength,
@@ -28,15 +28,11 @@ export default function ComposeMode({
   onOpenPicker,
   onDeleteSaved,
   onOpenRename,
-  onExportPdf,
-  displaySong,
-  selectedId,
-  onSelectEvent,
-  onRemoveEvent,
-  onReorderEvent,
 }: {
   notes: string[];
   noteLabelMode: NoteLabelMode;
+  doc: SongDoc;
+  onDocChange: (next: SongDoc) => void;
   testMode: boolean;
   freeMode: boolean;
   transpose: number;
@@ -44,10 +40,8 @@ export default function ComposeMode({
   onFreeModeChange: (next: boolean) => void;
   onTransposeDec: () => void;
   onTransposeInc: () => void;
-  onNoteClick: (note: string) => void | Promise<void>;
   isEnabledNote: (noteId: NoteId) => boolean;
-  onAddSpace: () => void;
-  onAddLineBreak: () => void;
+  onPreviewNote: (note: string) => void | Promise<void>;
   selectedSaved: string;
   savedNamesCount: number;
   songLength: number;
@@ -56,111 +50,9 @@ export default function ComposeMode({
   onOpenPicker: () => void;
   onDeleteSaved: () => void | Promise<void>;
   onOpenRename: () => void;
-  onExportPdf: () => void | Promise<void>;
-  displaySong: NoteEvent[];
-  selectedId: string | null;
-  onSelectEvent: (id: string) => void;
-  onRemoveEvent: (id: string) => void;
-  onReorderEvent: (sourceId: string, targetIndex: number) => void;
 }) {
-  function ToggleButton({
-    active,
-    label,
-    onClick,
-    title,
-  }: {
-    active: boolean;
-    label: string;
-    onClick: () => void;
-    title: string;
-  }) {
-    return (
-      <button
-        onClick={onClick}
-        aria-pressed={active}
-        title={title}
-        style={{
-          padding: "8px 10px",
-          borderRadius: 12,
-          border: active ? "2px solid rgba(255,255,255,0.85)" : "1px solid rgba(255,255,255,0.18)",
-          background: active ? "#333" : "#1f1f1f",
-          color: "#eaeaea",
-          cursor: "pointer",
-          fontSize: 12,
-          fontWeight: 800,
-          width: 68,
-          textAlign: "center",
-        }}
-      >
-        {label}
-      </button>
-    );
-  }
-
   return (
     <section style={{ display: "grid", gap: 14, marginTop: 18 }}>
-      <div
-        style={{
-          position: "sticky",
-          top: 12,
-          zIndex: 50,
-          background: "rgba(0,0,0,0.55)",
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-          border: "1px solid rgba(255,255,255,0.10)",
-          borderRadius: 14,
-          padding: 10,
-        }}
-      >
-        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ fontSize: 15, fontWeight: 900, textAlign: "center" }}>Teclado</div>
-          <div style={{ position: "absolute", right: 0, display: "flex", alignItems: "center", gap: 6 }}>
-            <button onClick={onTransposeDec} style={{ padding: "3px 8px", borderRadius: 10 }}>
-              –
-            </button>
-            <span style={{ minWidth: 24, textAlign: "center", fontSize: 12 }}>{transpose}</span>
-            <button onClick={onTransposeInc} style={{ padding: "3px 8px", borderRadius: 10 }}>
-              +
-            </button>
-          </div>
-        </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "78px 1fr 78px",
-            alignItems: "center",
-            columnGap: 10,
-            marginTop: 8,
-          }}
-        >
-          <div style={{ display: "grid", gap: 8, justifyItems: "center" }}>
-            <ToggleButton active={testMode} label="Test" title="Test Mode: no guardar notas al tocar" onClick={() => onTestModeChange(!testMode)} />
-            <ToggleButton active={freeMode} label="Free" title="Free Mode: tocar todas las teclas" onClick={() => onFreeModeChange(!freeMode)} />
-          </div>
-          <div style={{ display: "flex", justifyContent: "center" }}>
-            <div style={{ width: "min(100%, 780px)" }}>
-              <PianoKeyboard notes={notes} labelMode={noteLabelMode} onNoteClick={onNoteClick} isEnabledNote={isEnabledNote} />
-            </div>
-          </div>
-          <div style={{ display: "grid", gap: 8, justifyItems: "center" }}>
-            <button
-              onClick={onAddSpace}
-              style={{ padding: "8px 8px", borderRadius: 12, width: "68px", height: "68px", whiteSpace: "nowrap", background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", fontSize: 12 }}
-              title="Insertar un espacio en la canción"
-            >
-              Espacio
-            </button>
-            <button
-              onClick={onAddLineBreak}
-              style={{ padding: "8px 8px", borderRadius: 12, width: "68px", height: "68px", whiteSpace: "nowrap", background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", fontSize: 12 }}
-              title="Insertar un salto de línea"
-            >
-              Salto
-            </button>
-          </div>
-        </div>
-      </div>
-
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 900 }}>
         Canción
         {selectedSaved ? (
@@ -251,14 +143,20 @@ export default function ComposeMode({
         </div>
       </div>
 
-      <SongTimeline
-        song={displaySong}
-        selectedId={selectedId}
-        onSelect={onSelectEvent}
-        onRemove={onRemoveEvent}
+      <ComposerWorkspace
+        notes={notes}
         labelMode={noteLabelMode}
-        onReorder={onReorderEvent}
-        viewMode="notes"
+        doc={doc}
+        onDocChange={onDocChange}
+        transpose={transpose}
+        testMode={testMode}
+        freeMode={freeMode}
+        onTestModeChange={onTestModeChange}
+        onFreeModeChange={onFreeModeChange}
+        onTransposeDec={onTransposeDec}
+        onTransposeInc={onTransposeInc}
+        isEnabledNote={isEnabledNote}
+        onPreviewNote={onPreviewNote}
       />
     </section>
   );

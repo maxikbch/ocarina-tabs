@@ -7,6 +7,7 @@ export default function SaveSongModal({
   initialName = "",
   categories = [],
   initialCategory = "",
+  initialSubcategory = "",
   onCancel,
   onSave,
 }: {
@@ -14,11 +15,13 @@ export default function SaveSongModal({
   initialName?: string;
   categories?: string[];
   initialCategory?: string;
+  initialSubcategory?: string;
   onCancel: () => void;
-  onSave: (name: string, category: string) => void;
+  onSave: (name: string, category: string, subcategory: string) => void;
 }) {
   const [name, setName] = useState(initialName);
   const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
   const [useNewCategory, setUseNewCategory] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -26,10 +29,11 @@ export default function SaveSongModal({
     if (open) {
       setName(initialName);
       setCategory(initialCategory || "");
+      setSubcategory(initialSubcategory || "");
       setUseNewCategory(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [open, initialName, initialCategory]);
+  }, [open, initialName, initialCategory, initialSubcategory]);
 
   function normalizeCategory(input: string): string {
     const trimmed = (input || "").trim();
@@ -93,7 +97,7 @@ export default function SaveSongModal({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 const trimmed = (name || "").trim();
-                if (trimmed) onSave(trimmed, normalizeCategory(category));
+                if (trimmed) onSave(trimmed, normalizeCategory(category), (subcategory || "").trim());
               }
             }}
             style={{
@@ -159,6 +163,22 @@ export default function SaveSongModal({
             </select>
           )}
         </div>
+        <label style={{ display: "grid", gap: 6, fontSize: 12 }}>
+          Subcategoría (opcional)
+          <input
+            value={subcategory}
+            onChange={(e) => setSubcategory(e.target.value)}
+            placeholder="Ej: Zelda / Pop / Práctica"
+            style={{
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.15)",
+              background: "#111",
+              color: "#eaeaea",
+            }}
+            aria-label="Subcategoría"
+          />
+        </label>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
           <button
             onClick={onCancel}
@@ -169,7 +189,7 @@ export default function SaveSongModal({
           <button
             onClick={() => {
               const trimmed = (name || "").trim();
-              if (trimmed) onSave(trimmed, getFinalCategory());
+              if (trimmed) onSave(trimmed, getFinalCategory(), (subcategory || "").trim());
             }}
             style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
           >
