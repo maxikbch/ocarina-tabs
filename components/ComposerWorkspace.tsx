@@ -17,6 +17,7 @@ import {
   flattenDoc,
   getDisplayNote,
   isSpecialToken,
+  getBaseSectionName,
   makeUniqueSectionName,
   normalizeSectionName,
   type SongDoc,
@@ -377,23 +378,40 @@ export default function ComposerWorkspace({
   }
 
   function removeItem(sectionId: string, itemId: string) {
+    const sec = doc.sectionsById[sectionId];
+    const idx = sec ? sec.items.findIndex((x) => x.id === itemId) : -1;
+    const prevItem = sec && idx > 0 ? sec.items[idx - 1] : null;
+
     patchDoc((d) => {
       const s = d.sectionsById[sectionId];
       if (!s) return;
       s.items = s.items.filter((x) => x.id !== itemId);
     });
-    setSelected((cur) => (cur && cur.sectionId === sectionId && cur.itemId === itemId ? null : cur));
-    setSelectedItemIds((cur) => {
-      if (!cur.has(itemId)) return cur;
-      const next = new Set(cur);
-      next.delete(itemId);
-      return next;
-    });
+
+    const wasSelected = selected?.sectionId === sectionId && selected.itemId === itemId;
+    if (wasSelected && prevItem) {
+      setSingleSelection(sectionId, prevItem.id);
+    } else if (wasSelected) {
+      setSelected(null);
+      setSelectedItemIds(new Set());
+    } else {
+      setSelected((cur) => (cur && cur.sectionId === sectionId && cur.itemId === itemId ? null : cur));
+      setSelectedItemIds((cur) => {
+        if (!cur.has(itemId)) return cur;
+        const next = new Set(cur);
+        next.delete(itemId);
+        return next;
+      });
+    }
   }
 
   function removeManyItems(itemIds: string[]) {
     if (itemIds.length === 0) return;
     const ids = new Set(itemIds);
+    const flat = flattenDoc(doc);
+    const firstDeletedIdx = flat.findIndex((ref) => ids.has(ref.itemId));
+    const prevRef = firstDeletedIdx > 0 ? flat[firstDeletedIdx - 1] : null;
+
     patchDoc((d) => {
       for (const sec of Object.values(d.sectionsById)) {
         if (sec.items.some((x) => ids.has(x.id))) {
@@ -401,17 +419,26 @@ export default function ComposerWorkspace({
         }
       }
     });
-    setSelected((cur) => (cur && ids.has(cur.itemId) ? null : cur));
-    setSelectedItemIds((cur) => {
-      if (cur.size === 0) return cur;
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of cur) {
-        if (!ids.has(id)) next.add(id);
-        else changed = true;
-      }
-      return changed ? next : cur;
-    });
+
+    const removedWasSelected = selected && ids.has(selected.itemId) || Array.from(ids).some((id) => selectedItemIds.has(id));
+    if (removedWasSelected && prevRef) {
+      setSingleSelection(prevRef.sectionId, prevRef.itemId);
+    } else if (removedWasSelected) {
+      setSelected(null);
+      setSelectedItemIds(new Set());
+    } else {
+      setSelected((cur) => (cur && ids.has(cur.itemId) ? null : cur));
+      setSelectedItemIds((cur) => {
+        if (cur.size === 0) return cur;
+        let changed = false;
+        const next = new Set<string>();
+        for (const id of cur) {
+          if (!ids.has(id)) next.add(id);
+          else changed = true;
+        }
+        return changed ? next : cur;
+      });
+    }
   }
 
   function getSelectedItemsInOrder(): SongItem[] {
@@ -536,6 +563,11 @@ export default function ComposerWorkspace({
     if (!inst) return;
     const count = doc.arrangement.filter((x) => x.sectionId === inst.sectionId).length;
     if (count > 1) {
+      removeInstance(instanceId);
+      return;
+    }
+    const sec = doc.sectionsById[inst.sectionId];
+    if (sec && sec.items.length === 0) {
       removeInstance(instanceId);
       return;
     }
@@ -672,36 +704,102 @@ export default function ComposerWorkspace({
         e.preventDefault();
         pasteFromClipboard();
       }
+
+      const activeIdx = doc.arrangement.findIndex((i) => i.id === activeInstanceId);
+      const insertBelowIndex = activeIdx >= 0 ? activeIdx + 1 : null;
+      const activeSectionId = activeIdx >= 0 ? doc.arrangement[activeIdx].sectionId : null;
+      const activeSec = activeSectionId ? doc.sectionsById[activeSectionId] : null;
+
+      if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.createSection)) {
+        e.preventDefault();
+        if (insertBelowIndex != null) {
+          doCreateSection("General", insertBelowIndex);
+        } else {
+          doCreateSection("General", null);
+        }
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.duplicateSection)) {
+        e.preventDefault();
+        if (activeSectionId && activeSec) {
+          doDuplicateSection(activeSectionId, getBaseSectionName(activeSec.name), insertBelowIndex);
+        } else {
+          setDupOpen(true);
+        }
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.replicateSection)) {
+        e.preventDefault();
+        if (activeSectionId) {
+          doReplicateSection(activeSectionId, insertBelowIndex);
+        } else {
+          setRepOpen(true);
+        }
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [removeManyItems, removeItem, selected, selectedItemIds, copySelection, cutSelection, pasteFromClipboard]);
+  }, [removeManyItems, removeItem, selected, selectedItemIds, copySelection, cutSelection, pasteFromClipboard, doc, activeInstanceId]);
 
-  function createSection() {
-    const unique = makeUniqueSectionName(normalizeSectionName(createName), sectionNames(doc));
+  function doCreateSection(nameBase: string, insertAtIndex: number | null) {
+    const unique = makeUniqueSectionName(normalizeSectionName(nameBase), sectionNames(doc));
     const sectionId = nanoid();
     const instanceId = nanoid();
+    preservePageScroll();
     patchDoc((d) => {
       d.sectionsById[sectionId] = { id: sectionId, name: unique, items: [] };
-      d.arrangement = [...d.arrangement, { id: instanceId, sectionId }];
+      const arr = [...d.arrangement];
+      if (insertAtIndex != null && insertAtIndex >= 0 && insertAtIndex <= arr.length) {
+        arr.splice(insertAtIndex, 0, { id: instanceId, sectionId });
+      } else {
+        arr.push({ id: instanceId, sectionId });
+      }
+      d.arrangement = arr;
     });
     setActiveInstanceId(instanceId);
+  }
+
+  function doDuplicateSection(fromSectionId: string, newNameBase: string, insertAtIndex: number | null) {
+    const src = doc.sectionsById[fromSectionId];
+    if (!src) return;
+    const unique = makeUniqueSectionName(normalizeSectionName(newNameBase), sectionNames(doc));
+    const sectionId = nanoid();
+    const instanceId = nanoid();
+    preservePageScroll();
+    patchDoc((d) => {
+      d.sectionsById[sectionId] = { id: sectionId, name: unique, items: duplicateItemsWithNewIds(src.items) };
+      const arr = [...d.arrangement];
+      if (insertAtIndex != null && insertAtIndex >= 0 && insertAtIndex <= arr.length) {
+        arr.splice(insertAtIndex, 0, { id: instanceId, sectionId });
+      } else {
+        arr.push({ id: instanceId, sectionId });
+      }
+      d.arrangement = arr;
+    });
+    setActiveInstanceId(instanceId);
+  }
+
+  function doReplicateSection(fromSectionId: string, insertAtIndex: number | null) {
+    if (!doc.sectionsById[fromSectionId]) return;
+    const instanceId = nanoid();
+    preservePageScroll();
+    patchDoc((d) => {
+      const arr = [...d.arrangement];
+      if (insertAtIndex != null && insertAtIndex >= 0 && insertAtIndex <= arr.length) {
+        arr.splice(insertAtIndex, 0, { id: instanceId, sectionId: fromSectionId });
+      } else {
+        arr.push({ id: instanceId, sectionId: fromSectionId });
+      }
+      d.arrangement = arr;
+    });
+    setActiveInstanceId(instanceId);
+  }
+
+  function createSection() {
+    doCreateSection(createName || "General", null);
     setCreateOpen(false);
     setCreateName("");
   }
 
   function duplicateSection() {
     if (!dupFrom) return;
-    const src = doc.sectionsById[dupFrom];
-    if (!src) return;
-    const unique = makeUniqueSectionName(normalizeSectionName(dupName), sectionNames(doc));
-    const sectionId = nanoid();
-    const instanceId = nanoid();
-    patchDoc((d) => {
-      d.sectionsById[sectionId] = { id: sectionId, name: unique, items: duplicateItemsWithNewIds(src.items) };
-      d.arrangement = [...d.arrangement, { id: instanceId, sectionId }];
-    });
-    setActiveInstanceId(instanceId);
+    doDuplicateSection(dupFrom, dupName, null);
     setDupOpen(false);
     setDupName("");
     setDupFrom("");
@@ -709,13 +807,7 @@ export default function ComposerWorkspace({
 
   function replicateSection() {
     if (!repFrom) return;
-    const src = doc.sectionsById[repFrom];
-    if (!src) return;
-    const instanceId = nanoid();
-    patchDoc((d) => {
-      d.arrangement = [...d.arrangement, { id: instanceId, sectionId: repFrom }];
-    });
-    setActiveInstanceId(instanceId);
+    doReplicateSection(repFrom, null);
     setRepOpen(false);
     setRepFrom("");
   }

@@ -20,7 +20,7 @@ import ErrorModal from "@/components/ErrorModal";
 import ConfirmModal from "@/components/ConfirmModal";
 import PromptModal from "@/components/PromptModal";
 import LoadingModal from "@/components/LoadingModal";
-import { APP_KEY_BINDINGS, matchesKeyBinding } from "@/lib/config";
+import { APP_KEY_BINDINGS, MAX_UNDO_STACK_SIZE, matchesKeyBinding } from "@/lib/config";
 
 export default function Page() {
   // Podés cambiar esto por el rango real de tu ocarina
@@ -48,6 +48,18 @@ export default function Page() {
   const [exportLoading, setExportLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [baselineFp, setBaselineFp] = useState<string>(() => "");
+  const [unsavedReminderOpen, setUnsavedReminderOpen] = useState(false);
+  const [pendingModeSwitch, setPendingModeSwitch] = useState<"tocar" | "repertorio" | null>(null);
+  const pendingModeSwitchRef = useRef<"tocar" | "repertorio" | null>(null);
+  const omittedReminderFpRef = useRef<string | null>(null);
+  const undoStackRef = useRef<SongDoc[]>([]);
+  const redoStackRef = useRef<SongDoc[]>([]);
+  const skipUndoPushRef = useRef(false);
+  const docRef = useRef<SongDoc>(doc);
+
+  useEffect(() => {
+    docRef.current = doc;
+  }, [doc]);
 
   useEffect(() => {
     setSavedNames(listSongNames());
@@ -83,12 +95,6 @@ export default function Page() {
     return docFingerprint(doc, transpose) !== baselineFp;
   }, [doc, transpose, baselineFp]);
 
-  async function confirmLoseChanges(actionLabel: string): Promise<boolean> {
-    if (mode !== "componer") return true;
-    if (!isDirty) return true;
-    return await askConfirm(`La canción actual tiene cambios sin guardar.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`);
-  }
-
   const flatSong = useMemo(() => {
     const events: NoteEvent[] = [];
     const idToRef: Record<string, { sectionId: string; itemId: string }> = {};
@@ -106,6 +112,13 @@ export default function Page() {
     }
     return { events, idToRef };
   }, [doc]);
+
+  async function confirmLoseChanges(actionLabel: string): Promise<boolean> {
+    if (mode !== "componer") return true;
+    if (!isDirty) return true;
+    if (!selectedSaved && flatSong.events.length === 0) return true;
+    return await askConfirm(`La canción actual tiene cambios sin guardar.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`);
+  }
 
   const displaySong = useMemo<NoteEvent[]>(() => {
     if (!transpose) return flatSong.events;
@@ -426,10 +439,17 @@ export default function Page() {
     setAllSongs(listSongsWithCategories());
     setCategories(listCategories());
     showToast("Canción guardada");
+    if (pendingModeSwitchRef.current) {
+      setMode(pendingModeSwitchRef.current);
+      pendingModeSwitchRef.current = null;
+    }
   }
 
   const handleOpenSave = useCallback(() => {
-    if (flatSong.events.length === 0) return;
+    if (flatSong.events.length === 0) {
+      pendingModeSwitchRef.current = null;
+      return;
+    }
     if (selectedSaved) {
       void (async () => {
         const ok = await askConfirm("¿Quieres sobrescribir esta canción?");
@@ -442,6 +462,45 @@ export default function Page() {
     setSaveOpen(true);
   }, [flatSong.events.length, selectedSaved, allSongs]);
 
+  function handleDocChangeFromComposer(next: SongDoc) {
+    if (skipUndoPushRef.current) {
+      skipUndoPushRef.current = false;
+      setDoc(next);
+      return;
+    }
+    const current = docRef.current;
+    undoStackRef.current.push(structuredClone(current));
+    redoStackRef.current = [];
+    while (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) {
+      undoStackRef.current.shift();
+    }
+    setDoc(next);
+  }
+
+  function handleUndo() {
+    if (undoStackRef.current.length === 0) {
+      showToast("No hay pasos anteriores");
+      return;
+    }
+    const prev = undoStackRef.current.pop()!;
+    redoStackRef.current.push(structuredClone(docRef.current));
+    skipUndoPushRef.current = true;
+    setDoc(prev);
+    showToast("Deshecho");
+  }
+
+  function handleRedo() {
+    if (redoStackRef.current.length === 0) {
+      showToast("No hay pasos posteriores");
+      return;
+    }
+    const next = redoStackRef.current.pop()!;
+    undoStackRef.current.push(structuredClone(docRef.current));
+    skipUndoPushRef.current = true;
+    setDoc(next);
+    showToast("Rehecho");
+  }
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -452,10 +511,33 @@ export default function Page() {
         e.preventDefault();
         handleOpenSave();
       }
+      if (matchesKeyBinding(e, APP_KEY_BINDINGS.undo)) {
+        e.preventDefault();
+        handleUndo();
+      }
+      if (matchesKeyBinding(e, APP_KEY_BINDINGS.redo)) {
+        e.preventDefault();
+        handleRedo();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, handleOpenSave]);
+
+  function handleModeChange(newMode: "tocar" | "componer" | "repertorio") {
+    const hasContent = selectedSaved || flatSong.events.length > 0;
+    if (mode === "componer" && isDirty && newMode !== "componer" && hasContent) {
+      const currentFp = docFingerprint(doc, transpose);
+      if (omittedReminderFpRef.current === currentFp) {
+        setMode(newMode);
+        return;
+      }
+      setPendingModeSwitch(newMode);
+      setUnsavedReminderOpen(true);
+      return;
+    }
+    setMode(newMode);
+  }
 
   function askPrompt(title: string, label: string, initial: string): Promise<string | null> {
     return new Promise<string | null>((resolve) => {
@@ -490,7 +572,7 @@ export default function Page() {
     <main style={{ padding: 20, paddingLeft: 100, maxWidth: 1200, margin: "0 auto" }}>
       <ModeSidebar
         mode={mode}
-        onModeChange={setMode}
+        onModeChange={handleModeChange}
         noteLabelMode={noteLabelMode}
         onToggleNotation={() => setNoteLabelMode((m) => (m === "latin" ? "letter" : "latin"))}
       />
@@ -592,7 +674,7 @@ export default function Page() {
             notes={NOTES}
             noteLabelMode={noteLabelMode}
             doc={doc}
-            onDocChange={setDoc}
+            onDocChange={handleDocChangeFromComposer}
             testMode={testMode}
             freeMode={freeMode}
             transpose={transpose}
@@ -611,6 +693,9 @@ export default function Page() {
                 if (!ok) return;
                 const fresh = createEmptySongDoc();
                 setDoc(fresh);
+                omittedReminderFpRef.current = null;
+                undoStackRef.current = [];
+                redoStackRef.current = [];
                 setSelectedPlayId(null);
                 setSelectedSaved("");
                 setTranspose(0);
@@ -645,6 +730,9 @@ export default function Page() {
             const loaded = loadSongDoc(name);
             if (loaded) {
               setDoc(loaded);
+              omittedReminderFpRef.current = null;
+              undoStackRef.current = [];
+              redoStackRef.current = [];
               setSelectedPlayId(null);
               const t = getSongTranspose(name);
               setTranspose(t);
@@ -703,6 +791,63 @@ export default function Page() {
         />
       </div>
       <ErrorModal open={!!errorMsg} message={errorMsg || ""} onClose={() => setErrorMsg(null)} />
+      {unsavedReminderOpen && pendingModeSwitch && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1150,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.35)",
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-reminder-title"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 380px)",
+              background: "#1f1f1f",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 12,
+              padding: 16,
+              display: "grid",
+              gap: 14,
+            }}
+          >
+            <div id="unsaved-reminder-title" style={{ fontWeight: 900, fontSize: 16 }}>
+              No guardaste tu canción, ¿querés guardarla?
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => {
+                  omittedReminderFpRef.current = docFingerprint(doc, transpose);
+                  setUnsavedReminderOpen(false);
+                  setMode(pendingModeSwitch);
+                  setPendingModeSwitch(null);
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Omitir
+              </button>
+              <button
+                onClick={() => {
+                  setUnsavedReminderOpen(false);
+                  pendingModeSwitchRef.current = pendingModeSwitch;
+                  setPendingModeSwitch(null);
+                  handleOpenSave();
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <ConfirmModal
         open={!!confirmMsg}
         message={confirmMsg || ""}

@@ -47,6 +47,14 @@ export function normalizeSectionName(input: string | null | undefined): string {
   return trimmed || "General";
 }
 
+/** Quita el sufijo numérico final (ej. "General 2 2" -> "General") para usar como base al duplicar. */
+export function getBaseSectionName(name: string): string {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return "General";
+  const match = trimmed.match(/^(.*?)(?:\s+\d+)+$/);
+  return match ? (match[1].trim() || trimmed) : trimmed;
+}
+
 export function makeUniqueSectionName(desired: string, existingNames: string[]): string {
   const base = normalizeSectionName(desired);
   const used = new Set(existingNames.map((n) => n.toLowerCase()));

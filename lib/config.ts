@@ -44,6 +44,9 @@ export const COMPOSER_KEY_BINDINGS = {
   copy: { key: "c", ctrlOrMeta: true },
   cut: { key: "x", ctrlOrMeta: true },
   paste: { key: "v", ctrlOrMeta: true },
+  createSection: { key: "a", ctrlOrMeta: true },
+  duplicateSection: { key: "d", ctrlOrMeta: true, shift: false },
+  replicateSection: { key: "D", ctrlOrMeta: true, shift: true },
 } as const;
 
 /** Atajos del modo Tocar (navegación entre secciones). */
@@ -55,4 +58,9 @@ export const PLAY_MODE_KEY_BINDINGS = {
 /** Atajos globales (p. ej. guardar en modo componer). */
 export const APP_KEY_BINDINGS = {
   save: { key: "s", ctrlOrMeta: true },
+  undo: { key: "z", ctrlOrMeta: true, shift: false },
+  redo: { key: "Z", ctrlOrMeta: true, shift: true },
 } as const;
+
+/** Límite de la pila de deshacer (modo componer). */
+export const MAX_UNDO_STACK_SIZE = 50;
