@@ -8,6 +8,7 @@ export default function SaveSongModal({
   categories = [],
   initialCategory = "",
   initialSubcategory = "",
+  existingNames = [],
   onCancel,
   onSave,
 }: {
@@ -16,6 +17,8 @@ export default function SaveSongModal({
   categories?: string[];
   initialCategory?: string;
   initialSubcategory?: string;
+  /** Nombres de canciones ya guardadas; si el nombre escrito está aquí, se muestra aviso de sobrescritura. */
+  existingNames?: string[];
   onCancel: () => void;
   onSave: (name: string, category: string, subcategory: string) => void;
 }) {
@@ -46,6 +49,9 @@ export default function SaveSongModal({
     if (useNewCategory) return normalizeCategory(category);
     return (category || "").trim();
   }
+
+  const trimmedName = (name || "").trim();
+  const nameAlreadyExists = trimmedName.length > 0 && (existingNames || []).some((n) => n.trim().toLowerCase() === trimmedName.toLowerCase());
 
   if (!open) return null;
 
@@ -109,6 +115,11 @@ export default function SaveSongModal({
             }}
             aria-label="Nombre de la canción"
           />
+          {nameAlreadyExists && (
+            <div style={{ fontSize: 12, color: "rgba(255, 200, 100, 0.95)", marginTop: 4 }}>
+              Ya existe una canción con este nombre. Al guardar se sobrescribirá.
+            </div>
+          )}
         </label>
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

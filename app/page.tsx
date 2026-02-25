@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import ModeSidebar from "@/components/ModeSidebar";
 import ComposeMode from "@/components/modes/ComposeMode";
@@ -20,6 +20,7 @@ import ErrorModal from "@/components/ErrorModal";
 import ConfirmModal from "@/components/ConfirmModal";
 import PromptModal from "@/components/PromptModal";
 import LoadingModal from "@/components/LoadingModal";
+import { APP_KEY_BINDINGS, matchesKeyBinding } from "@/lib/config";
 
 export default function Page() {
   // Podés cambiar esto por el rango real de tu ocarina
@@ -416,6 +417,46 @@ export default function Page() {
     });
   }
 
+  function performSave(name: string, category: string, subcategory: string) {
+    saveSongDoc(name, doc, transpose, category, subcategory);
+    setBaselineFp(docFingerprint(doc, transpose));
+    const names = listSongNames();
+    setSavedNames(names);
+    setSelectedSaved(name);
+    setAllSongs(listSongsWithCategories());
+    setCategories(listCategories());
+    showToast("Canción guardada");
+  }
+
+  const handleOpenSave = useCallback(() => {
+    if (flatSong.events.length === 0) return;
+    if (selectedSaved) {
+      void (async () => {
+        const ok = await askConfirm("¿Quieres sobrescribir esta canción?");
+        if (!ok) return;
+        const meta = allSongs.find((s) => s.name === selectedSaved);
+        performSave(selectedSaved, meta?.category ?? "", meta?.subcategory ?? "");
+      })();
+      return;
+    }
+    setSaveOpen(true);
+  }, [flatSong.events.length, selectedSaved, allSongs]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (el as any)?.isContentEditable) return;
+      if (mode !== "componer") return;
+      if (matchesKeyBinding(e, APP_KEY_BINDINGS.save)) {
+        e.preventDefault();
+        handleOpenSave();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, handleOpenSave]);
+
   function askPrompt(title: string, label: string, initial: string): Promise<string | null> {
     return new Promise<string | null>((resolve) => {
       setPromptState({ open: true, title, label, initial });
@@ -576,7 +617,7 @@ export default function Page() {
                 setBaselineFp(docFingerprint(fresh, 0));
               })();
             }}
-            onOpenSave={() => setSaveOpen(true)}
+            onOpenSave={handleOpenSave}
             onOpenPicker={() => setPickerOpen(true)}
             onDeleteSaved={async () => {
               if (!selectedSaved) return;
@@ -619,31 +660,22 @@ export default function Page() {
           categories={categories}
           initialCategory={(allSongs.find((s) => s.name === selectedSaved)?.category || "")}
           initialSubcategory={(allSongs.find((s) => s.name === selectedSaved)?.subcategory || "")}
+          existingNames={savedNames}
           onCancel={() => setSaveOpen(false)}
-          onSave={async (name, category, subcategory) => {
-            if (flatSong.events.length === 0) {
-              return;
-            }
-            if (hasSong(name)) {
-              const ok = await askConfirm(`La canción "${name}" ya existe. ¿Sobrescribir?`);
-              if (!ok) return;
-            }
-            saveSongDoc(name, doc, transpose, category, subcategory);
-            setBaselineFp(docFingerprint(doc, transpose));
-            const names = listSongNames();
-            setSavedNames(names);
-            setSelectedSaved(name);
-            setAllSongs(listSongsWithCategories());
-            setCategories(listCategories());
+          onSave={(name, category, subcategory) => {
+            if (flatSong.events.length === 0) return;
+            performSave(name, category, subcategory);
             setSaveOpen(false);
-            showToast("Canción guardada");
           }}
         />
         <RenameSongModal
           open={renameOpen}
           initialName={selectedSaved || ""}
+          initialCategory={allSongs.find((s) => s.name === selectedSaved)?.category ?? ""}
+          initialSubcategory={allSongs.find((s) => s.name === selectedSaved)?.subcategory ?? ""}
+          categories={categories}
           onCancel={() => setRenameOpen(false)}
-          onSave={async (newName) => {
+          onSave={async (newName, category, subcategory) => {
             const trimmed = (newName || "").trim();
             if (!trimmed) return;
             if (!selectedSaved) {
@@ -654,13 +686,19 @@ export default function Page() {
               const ok = await askConfirm(`La canción "${trimmed}" ya existe. ¿Sobrescribir?`);
               if (!ok) return;
             }
-            renameSong(selectedSaved, trimmed);
+            if (selectedSaved !== trimmed) {
+              renameSong(selectedSaved, trimmed);
+            }
+            const finalName = trimmed;
+            setSongCategory(finalName, category);
+            setSongSubcategory(finalName, subcategory);
             const names = listSongNames();
             setSavedNames(names);
-            setSelectedSaved(trimmed);
+            setSelectedSaved(finalName);
             setAllSongs(listSongsWithCategories());
+            setCategories(listCategories());
             setRenameOpen(false);
-            showToast("Nombre actualizado");
+            showToast("Canción actualizada");
           }}
         />
       </div>

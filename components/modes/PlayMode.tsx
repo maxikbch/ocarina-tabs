@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import SongTimeline from "@/components/SongTimeline";
+import { PLAY_MODE_KEY_BINDINGS, matchesKeyBinding } from "@/lib/config";
 import type { NoteLabelMode } from "@/lib/noteLabels";
 import type { NoteEvent } from "@/lib/types";
 
@@ -81,7 +82,7 @@ export default function PlayMode({
       if (tag === "INPUT" || tag === "TEXTAREA" || (el as any)?.isContentEditable) return;
       if (!sections.length) return;
 
-      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      if (!matchesKeyBinding(e, PLAY_MODE_KEY_BINDINGS.nextSection) && !matchesKeyBinding(e, PLAY_MODE_KEY_BINDINGS.prevSection)) return;
       e.preventDefault();
 
       // Si no hay ninguna seleccionada, seleccionar la primera
@@ -94,7 +95,7 @@ export default function PlayMode({
 
       const curIdx = sectionIndexById.get(selectedSectionInstanceId) ?? 0;
       const nextIdx =
-        e.key === "ArrowRight"
+        matchesKeyBinding(e, PLAY_MODE_KEY_BINDINGS.nextSection)
           ? (curIdx + 1) % sections.length
           : (curIdx - 1 + sections.length) % sections.length;
       const nextId = sections[nextIdx]?.instanceId ?? sections[0].instanceId;

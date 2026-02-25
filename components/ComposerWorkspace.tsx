@@ -7,7 +7,14 @@ import type { NoteId } from "@/lib/types";
 import { hasFingeringForNote } from "@/lib/fingerings";
 import { nanoid } from "nanoid";
 import {
+  COMPOSER_KEY_BINDINGS,
+  SHOW_DELETE_BUTTONS_ON_ITEMS,
+  matchesAnyKeyBinding,
+  matchesKeyBinding,
+} from "@/lib/config";
+import {
   duplicateItemsWithNewIds,
+  flattenDoc,
   getDisplayNote,
   isSpecialToken,
   makeUniqueSectionName,
@@ -205,6 +212,9 @@ export default function ComposerWorkspace({
   const [dupName, setDupName] = useState("");
   const [dupFrom, setDupFrom] = useState<string>("");
   const [repFrom, setRepFrom] = useState<string>("");
+
+  const [clipboardToast, setClipboardToast] = useState<string | null>(null);
+  const clipboardToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sectionsList = useMemo(() => {
     return Object.values(doc.sectionsById)
@@ -404,6 +414,100 @@ export default function ComposerWorkspace({
     });
   }
 
+  function getSelectedItemsInOrder(): SongItem[] {
+    if (selectedItemIds.size > 0) {
+      const flat = flattenDoc(doc);
+      const ids = selectedItemIds;
+      const items: SongItem[] = [];
+      for (const ref of flat) {
+        if (!ids.has(ref.itemId)) continue;
+        const sec = doc.sectionsById[ref.sectionId];
+        const it = sec?.items.find((x) => x.id === ref.itemId);
+        if (it) items.push(it);
+      }
+      return items;
+    }
+    if (selected) {
+      const sec = doc.sectionsById[selected.sectionId];
+      const it = sec?.items.find((x) => x.id === selected.itemId);
+      return it ? [it] : [];
+    }
+    return [];
+  }
+
+  function showClipboardToast(message: string) {
+    setClipboardToast(message);
+    if (clipboardToastRef.current) {
+      clearTimeout(clipboardToastRef.current);
+      clipboardToastRef.current = null;
+    }
+    clipboardToastRef.current = setTimeout(() => {
+      setClipboardToast(null);
+      clipboardToastRef.current = null;
+    }, 1800);
+  }
+
+  function copySelection() {
+    const items = getSelectedItemsInOrder();
+    if (items.length === 0) return;
+    navigator.clipboard.writeText(JSON.stringify({ ocarinaNotes: items })).catch(() => {});
+    showClipboardToast("Copiado");
+  }
+
+  function cutSelection() {
+    const items = getSelectedItemsInOrder();
+    if (items.length === 0) return;
+    navigator.clipboard.writeText(JSON.stringify({ ocarinaNotes: items })).catch(() => {});
+    preservePageScroll();
+    if (selectedItemIds.size > 1) {
+      removeManyItems(Array.from(selectedItemIds));
+    } else if (selected) {
+      removeItem(selected.sectionId, selected.itemId);
+    }
+    showClipboardToast("Cortado");
+  }
+
+  async function pasteFromClipboard() {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      return;
+    }
+    let payload: { ocarinaNotes?: SongItem[] };
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const raw = payload?.ocarinaNotes;
+    if (!Array.isArray(raw) || raw.length === 0) return;
+    const newItems = duplicateItemsWithNewIds(raw);
+    const target = getInstanceSection(doc, activeInstanceId);
+    if (!target) return;
+    const sec = doc.sectionsById[target.sectionId];
+    if (!sec) return;
+    let insertIndex: number;
+    if (selected?.sectionId === sec.id && selected.itemId) {
+      const idx = sec.items.findIndex((x) => x.id === selected.itemId);
+      insertIndex = idx >= 0 ? idx + 1 : sec.items.length;
+    } else {
+      insertIndex = sec.items.length;
+    }
+    preservePageScroll();
+    patchDoc((d) => {
+      const s = d.sectionsById[target.sectionId];
+      if (!s) return;
+      const copy = [...s.items];
+      copy.splice(insertIndex, 0, ...newItems);
+      s.items = copy;
+    });
+    setActiveInstanceId(target.instanceId);
+    setSingleSelection(target.sectionId, newItems[newItems.length - 1].id);
+    setSelectedItemIds(new Set(newItems.map((i) => i.id)));
+    showClipboardToast("Pegado");
+  }
+
   function removeInstance(instanceId: string) {
     patchDoc((d) => {
       const inst = d.arrangement.find((x) => x.id === instanceId);
@@ -534,20 +638,20 @@ export default function ComposerWorkspace({
     });
   }
 
-  // Teclas: Escape limpia selección; Delete/Backspace borra selección
+  // Teclas: ver COMPOSER_KEY_BINDINGS en lib/config.ts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (el as any)?.isContentEditable) return;
 
-      if (e.key === "Escape") {
+      if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.clearSelection)) {
         setSelected(null);
         setSelectedItemIds(new Set());
         return;
       }
 
-      if (e.key === "Delete" || e.key === "Backspace") {
+      if (matchesAnyKeyBinding(e, COMPOSER_KEY_BINDINGS.delete)) {
         if (selectedItemIds.size > 0) {
           e.preventDefault();
           removeManyItems(Array.from(selectedItemIds));
@@ -555,11 +659,23 @@ export default function ComposerWorkspace({
           e.preventDefault();
           removeItem(selected.sectionId, selected.itemId);
         }
+        return;
+      }
+
+      if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.copy)) {
+        e.preventDefault();
+        copySelection();
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.cut)) {
+        e.preventDefault();
+        cutSelection();
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.paste)) {
+        e.preventDefault();
+        pasteFromClipboard();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [removeManyItems, removeItem, selected, selectedItemIds]);
+  }, [removeManyItems, removeItem, selected, selectedItemIds, copySelection, cutSelection, pasteFromClipboard]);
 
   function createSection() {
     const unique = makeUniqueSectionName(normalizeSectionName(createName), sectionNames(doc));
@@ -700,31 +816,33 @@ export default function ComposerWorkspace({
             >
               <div style={{ fontWeight: 900, fontSize: 12, opacity: 0.85 }}>↵</div>
               <div style={{ opacity: 0.7, fontSize: 12 }}>Salto</div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  preservePageScroll();
-                  if (selectedItemIds.size > 1 && selectedItemIds.has(it.id)) {
-                    removeManyItems(Array.from(selectedItemIds));
-                  } else {
-                    removeItem(sec.id, it.id);
-                  }
-                }}
-                aria-label="Borrar salto"
-                title="Borrar"
-                tabIndex={-1}
-                style={{
-                  marginLeft: "auto",
-                  border: "none",
-                  background: "none",
-                  color: "rgba(255,255,255,0.9)",
-                  fontSize: 14,
-                  lineHeight: 1,
-                  cursor: "pointer",
-                }}
-              >
-                ✕
-              </button>
+              {SHOW_DELETE_BUTTONS_ON_ITEMS && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    preservePageScroll();
+                    if (selectedItemIds.size > 1 && selectedItemIds.has(it.id)) {
+                      removeManyItems(Array.from(selectedItemIds));
+                    } else {
+                      removeItem(sec.id, it.id);
+                    }
+                  }}
+                  aria-label="Borrar salto"
+                  title="Borrar"
+                  tabIndex={-1}
+                  style={{
+                    marginLeft: "auto",
+                    border: "none",
+                    background: "none",
+                    color: "rgba(255,255,255,0.9)",
+                    fontSize: 14,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           );
           col = 0;
@@ -812,34 +930,36 @@ export default function ComposerWorkspace({
             >
               {label}
             </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                preservePageScroll();
-                if (selectedItemIds.size > 1 && selectedItemIds.has(it.id)) {
-                  removeManyItems(Array.from(selectedItemIds));
-                } else {
-                  removeItem(sec.id, it.id);
-                }
-              }}
-              aria-label="Borrar nota"
-              title="Borrar"
-              tabIndex={-1}
-              style={{
-                position: "absolute",
-                top: 4,
-                right: 4,
-                padding: "0px 4px",
-                border: "none",
-                background: "none",
-                color: "rgba(255,255,255,0.9)",
-                fontSize: 14,
-                lineHeight: 1,
-                cursor: "pointer",
-              }}
-            >
-              ✕
-            </button>
+            {SHOW_DELETE_BUTTONS_ON_ITEMS && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  preservePageScroll();
+                  if (selectedItemIds.size > 1 && selectedItemIds.has(it.id)) {
+                    removeManyItems(Array.from(selectedItemIds));
+                  } else {
+                    removeItem(sec.id, it.id);
+                  }
+                }}
+                aria-label="Borrar nota"
+                title="Borrar"
+                tabIndex={-1}
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 4,
+                  padding: "0px 4px",
+                  border: "none",
+                  background: "none",
+                  color: "rgba(255,255,255,0.9)",
+                  fontSize: 14,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                }}
+              >
+                ✕
+              </button>
+            )}
           </div>
         );
         col++;
@@ -924,6 +1044,7 @@ export default function ComposerWorkspace({
           onMouseDown={(e) => {
             // Click en “fondo” de la grilla: limpiar selección
             if (e.target === e.currentTarget) {
+              preservePageScroll();
               setActiveInstanceId(inst.id);
               setSelected(null);
               setSelectedItemIds(new Set());
@@ -1222,6 +1343,27 @@ export default function ComposerWorkspace({
           </button>
         </div>
       </ModalShell>
+      {clipboardToast && (
+        <div
+          style={{
+            position: "fixed",
+            right: 16,
+            bottom: 16,
+            zIndex: 1200,
+            background: "rgba(32,32,32,0.96)",
+            color: "#eaeaea",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 10,
+            padding: "10px 14px",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
+            fontSize: 14,
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          {clipboardToast}
+        </div>
+      )}
     </>
   );
 }

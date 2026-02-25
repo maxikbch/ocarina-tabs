@@ -5,23 +5,47 @@ import React, { useEffect, useRef, useState } from "react";
 export default function RenameSongModal({
   open,
   initialName = "",
+  initialCategory = "",
+  initialSubcategory = "",
+  categories = [],
   onCancel,
   onSave,
 }: {
   open: boolean;
   initialName?: string;
+  initialCategory?: string;
+  initialSubcategory?: string;
+  categories?: string[];
   onCancel: () => void;
-  onSave: (name: string) => void;
+  onSave: (name: string, category: string, subcategory: string) => void;
 }) {
   const [name, setName] = useState(initialName);
+  const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
+  const [useNewCategory, setUseNewCategory] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
       setName(initialName);
+      setCategory(initialCategory || "");
+      setSubcategory(initialSubcategory || "");
+      setUseNewCategory(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [open, initialName]);
+  }, [open, initialName, initialCategory, initialSubcategory]);
+
+  function normalizeCategory(input: string): string {
+    const trimmed = (input || "").trim();
+    if (!trimmed) return "";
+    const lower = trimmed.toLowerCase();
+    const match = (categories || []).find((c) => c.toLowerCase() === lower);
+    return match ?? trimmed;
+  }
+  function getFinalCategory(): string {
+    if (useNewCategory) return normalizeCategory(category);
+    return (category || "").trim();
+  }
 
   if (!open) return null;
 
@@ -53,7 +77,7 @@ export default function RenameSongModal({
         }}
       >
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>Renombrar canción</div>
+          <div style={{ fontWeight: 900, fontSize: 16 }}>Editar canción</div>
           <button
             onClick={onCancel}
             style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
@@ -73,7 +97,7 @@ export default function RenameSongModal({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 const trimmed = (name || "").trim();
-                if (trimmed) onSave(trimmed);
+                if (trimmed) onSave(trimmed, getFinalCategory(), (subcategory || "").trim());
               }
             }}
             style={{
@@ -86,6 +110,75 @@ export default function RenameSongModal({
             aria-label="Nombre de la canción"
           />
         </label>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 12, opacity: 0.9 }}>Categoría (opcional)</div>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, userSelect: "none", marginLeft: "auto" }}>
+              <input
+                type="checkbox"
+                checked={useNewCategory}
+                onChange={(e) => {
+                  setUseNewCategory(e.target.checked);
+                  setCategory("");
+                }}
+                aria-label="Usar nueva categoría"
+                title="Usar nueva categoría"
+              />
+              Nueva categoría
+            </label>
+          </div>
+          {useNewCategory ? (
+            <input
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="Escribe la nueva categoría"
+              style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.15)",
+                background: "#111",
+                color: "#eaeaea",
+              }}
+              aria-label="Nueva categoría"
+            />
+          ) : (
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.15)",
+                background: "#111",
+                color: "#eaeaea",
+              }}
+              aria-label="Seleccionar categoría existente"
+            >
+              <option value="">Sin categoría</option>
+              {(categories || []).map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <label style={{ display: "grid", gap: 6, fontSize: 12 }}>
+          Subcategoría (opcional)
+          <input
+            value={subcategory}
+            onChange={(e) => setSubcategory(e.target.value)}
+            placeholder="Ej: Zelda / Pop / Práctica"
+            style={{
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.15)",
+              background: "#111",
+              color: "#eaeaea",
+            }}
+            aria-label="Subcategoría"
+          />
+        </label>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
           <button
             onClick={onCancel}
@@ -96,7 +189,7 @@ export default function RenameSongModal({
           <button
             onClick={() => {
               const trimmed = (name || "").trim();
-              if (trimmed) onSave(trimmed);
+              if (trimmed) onSave(trimmed, getFinalCategory(), (subcategory || "").trim());
             }}
             style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
           >
@@ -107,5 +200,3 @@ export default function RenameSongModal({
     </div>
   );
 }
-
-
