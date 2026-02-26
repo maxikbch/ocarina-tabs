@@ -13,6 +13,8 @@ type PlaySection = {
 };
 
 export default function PlayMode({
+  scrollContainerRef,
+  stickyTopOffset = 12,
   selectedSaved,
   savedNamesCount,
   onOpenPicker,
@@ -23,6 +25,9 @@ export default function PlayMode({
   onReorderEvent,
   noteLabelMode,
 }: {
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  /** Offset desde el top del viewport para el sticky (p. ej. 12 + altura barra título en Electron) */
+  stickyTopOffset?: number;
   selectedSaved: string;
   savedNamesCount: number;
   onOpenPicker: () => void;
@@ -55,24 +60,33 @@ export default function PlayMode({
     setSelectedSectionInstanceId((cur) => (cur ? cur : sections[0].instanceId));
   }, [sections]);
 
+  // Elemento que hace scroll (contenedor interno en app, o document en navegador clásico)
+  function getScrollContainer(): Element | null {
+    return scrollContainerRef?.current ?? (typeof document !== "undefined" ? document.scrollingElement : null);
+  }
+
   // Al seleccionar/cargar una canción nueva: scrollear arriba (respeta flag de animación)
   useEffect(() => {
     const cur = selectedSaved || "";
     if (lastSongRef.current !== cur) {
       lastSongRef.current = cur;
-      window.scrollTo({ top: 0, behavior: animateSectionScroll ? "smooth" : "auto" });
+      const container = getScrollContainer();
+      if (container) container.scrollTo({ top: 0, behavior: animateSectionScroll ? "smooth" : "auto" });
     }
   }, [selectedSaved]);
 
   function scrollToSection(instanceId: string) {
     const el = sectionElsRef.current.get(instanceId);
     if (!el) return;
+    const container = getScrollContainer();
+    if (!container) return;
     const headerH = stickyHeaderRef.current?.getBoundingClientRect().height ?? 0;
-    const stickyTop = 12; // coincide con top del sticky
+    const stickyTop = stickyTopOffset;
     const extraGap = 10;
-    const y = window.scrollY + el.getBoundingClientRect().top;
+    const scrollTop = "scrollTop" in container ? (container as HTMLElement).scrollTop : window.scrollY;
+    const y = scrollTop + el.getBoundingClientRect().top;
     const targetTop = Math.max(0, Math.round(y - headerH - stickyTop - extraGap));
-    window.scrollTo({ top: targetTop, behavior: animateSectionScroll ? "smooth" : "auto" });
+    container.scrollTo({ top: targetTop, behavior: animateSectionScroll ? "smooth" : "auto" });
   }
 
   useEffect(() => {
@@ -112,7 +126,7 @@ export default function PlayMode({
         ref={stickyHeaderRef}
         style={{
           position: "sticky",
-          top: 12,
+          top: stickyTopOffset,
           zIndex: 60,
           background: "rgba(0,0,0,0.55)",
           backdropFilter: "blur(10px)",

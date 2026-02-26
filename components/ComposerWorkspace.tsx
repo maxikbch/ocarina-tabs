@@ -181,6 +181,7 @@ export default function ComposerWorkspace({
   onTransposeInc,
   isEnabledNote,
   onPreviewNote,
+  stickyTopOffset = 12,
 }: {
   notes: string[];
   labelMode: NoteLabelMode;
@@ -195,6 +196,8 @@ export default function ComposerWorkspace({
   onTransposeInc: () => void;
   isEnabledNote: (noteId: NoteId) => boolean;
   onPreviewNote: (note: string) => void | Promise<void>;
+  /** Offset desde el top del viewport para el sticky del teclado */
+  stickyTopOffset?: number;
 }) {
   const [activeInstanceId, setActiveInstanceId] = useState<string | null>(doc.arrangement[0]?.id ?? null);
   const [selected, setSelected] = useState<{ sectionId: string; itemId: string } | null>(null);
@@ -1197,7 +1200,7 @@ export default function ComposerWorkspace({
       <div
         style={{
           position: "sticky",
-          top: 12,
+          top: stickyTopOffset,
           zIndex: 50,
           background: "rgba(0,0,0,0.55)",
           backdropFilter: "blur(10px)",

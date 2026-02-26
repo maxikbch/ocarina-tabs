@@ -28,6 +28,7 @@ export default function ComposeMode({
   onOpenPicker,
   onDeleteSaved,
   onOpenRename,
+  stickyTopOffset = 12,
 }: {
   notes: string[];
   noteLabelMode: NoteLabelMode;
@@ -50,6 +51,8 @@ export default function ComposeMode({
   onOpenPicker: () => void;
   onDeleteSaved: () => void | Promise<void>;
   onOpenRename: () => void;
+  /** Offset desde el top del viewport para el sticky del teclado (p. ej. 12 + altura barra título en Electron) */
+  stickyTopOffset?: number;
 }) {
   return (
     <section style={{ display: "grid", gap: 14, marginTop: 18 }}>
@@ -157,6 +160,7 @@ export default function ComposeMode({
         onTransposeInc={onTransposeInc}
         isEnabledNote={isEnabledNote}
         onPreviewNote={onPreviewNote}
+        stickyTopOffset={stickyTopOffset}
       />
     </section>
   );

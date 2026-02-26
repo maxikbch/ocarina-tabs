@@ -49,6 +49,8 @@ export default function Page() {
   const [exportLoading, setExportLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [baselineFp, setBaselineFp] = useState<string>(() => "");
+  const baselineFpRef = useRef<string>("");
+  const justSavedRef = useRef<boolean>(false);
   const [unsavedReminderOpen, setUnsavedReminderOpen] = useState(false);
   const [pendingModeSwitch, setPendingModeSwitch] = useState<"tocar" | "repertorio" | null>(null);
   const pendingModeSwitchRef = useRef<"tocar" | "repertorio" | null>(null);
@@ -60,6 +62,7 @@ export default function Page() {
   const skipUndoPushRef = useRef(false);
   const docRef = useRef<SongDoc>(doc);
   const requestCloseRef = useRef<() => Promise<void>>(async () => {});
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     docRef.current = doc;
@@ -111,7 +114,9 @@ export default function Page() {
 
   useEffect(() => {
     // baseline inicial = estado inicial de doc+transpose
-    setBaselineFp((cur) => (cur ? cur : docFingerprint(doc, transpose)));
+    const fp = docFingerprint(doc, transpose);
+    setBaselineFp((cur) => (cur ? cur : fp));
+    baselineFpRef.current = baselineFpRef.current || fp;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -485,7 +490,10 @@ export default function Page() {
   function performSave(name: string, category: string, subcategory: string) {
     saveSongDoc(name, doc, transpose, category, subcategory);
     clearDraft();
-    setBaselineFp(docFingerprint(doc, transpose));
+    const fp = docFingerprint(doc, transpose);
+    baselineFpRef.current = fp;
+    justSavedRef.current = true;
+    setBaselineFp(fp);
     const names = listSongNames();
     setSavedNames(names);
     setSelectedSaved(name);
@@ -579,8 +587,14 @@ export default function Page() {
 
   function handleModeChange(newMode: "tocar" | "componer" | "repertorio") {
     const hasContent = selectedSaved || flatSong.events.length > 0;
-    if (mode === "componer" && isDirty && newMode !== "componer" && hasContent) {
-      const currentFp = docFingerprint(doc, transpose);
+    if (justSavedRef.current) {
+      justSavedRef.current = false;
+      setMode(newMode);
+      return;
+    }
+    const currentFp = docFingerprint(doc, transpose);
+    const reallyDirty = currentFp !== baselineFpRef.current;
+    if (mode === "componer" && reallyDirty && newMode !== "componer" && hasContent) {
       if (omittedReminderFpRef.current === currentFp) {
         setMode(newMode);
         return;
@@ -637,6 +651,7 @@ export default function Page() {
       <TitleBar onCloseClick={() => void requestCloseRef.current?.()} />
       {/* Contenedor de scroll a ancho completo: la barra queda al borde y los espacios vacíos scrollean con el contenido */}
       <div
+        ref={scrollContainerRef}
         style={{
           flex: 1,
           minHeight: 0,
@@ -755,6 +770,8 @@ export default function Page() {
           </div>
         ) : mode === "tocar" ? (
           <PlayMode
+            scrollContainerRef={scrollContainerRef}
+            stickyTopOffset={12 + titleBarHeight}
             selectedSaved={selectedSaved}
             savedNamesCount={savedNames.length}
             onOpenPicker={() => setPickerOpen(true)}
@@ -767,6 +784,7 @@ export default function Page() {
           />
         ) : (
           <ComposeMode
+            stickyTopOffset={12 + titleBarHeight}
             notes={NOTES}
             noteLabelMode={noteLabelMode}
             doc={doc}
@@ -795,7 +813,9 @@ export default function Page() {
                 setSelectedPlayId(null);
                 setSelectedSaved("");
                 setTranspose(0);
-                setBaselineFp(docFingerprint(fresh, 0));
+                const fp = docFingerprint(fresh, 0);
+                baselineFpRef.current = fp;
+                setBaselineFp(fp);
               })();
             }}
             onOpenSave={handleOpenSave}
@@ -833,7 +853,9 @@ export default function Page() {
               const t = getSongTranspose(name);
               setTranspose(t);
               setSelectedSaved(name);
-              setBaselineFp(docFingerprint(loaded, t));
+              const fp = docFingerprint(loaded, t);
+              baselineFpRef.current = fp;
+              setBaselineFp(fp);
             }
             return true;
           }}
@@ -1005,7 +1027,9 @@ export default function Page() {
                   setTranspose(d.transpose);
                   setSelectedSaved(d.savedName);
                   setMode("componer");
-                  setBaselineFp(docFingerprint(d.doc, d.transpose));
+                  const fp = docFingerprint(d.doc, d.transpose);
+                  baselineFpRef.current = fp;
+                  setBaselineFp(fp);
                   undoStackRef.current = [];
                   redoStackRef.current = [];
                   clearDraft();
