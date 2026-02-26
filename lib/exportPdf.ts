@@ -73,8 +73,8 @@ export async function exportSongPdf(
   const title = options?.title ?? "Canción";
   const transpose = options?.transpose ?? 0;
 
-  await preloadImage("/ocarina.png");
-  const ocarinaDataUrl = await fetchAsDataUrl("/ocarina.png");
+  await preloadImage("./ocarina.png");
+  const ocarinaDataUrl = await fetchAsDataUrl("./ocarina.png");
 
   const offscreen = document.createElement("div");
   offscreen.style.position = "fixed";

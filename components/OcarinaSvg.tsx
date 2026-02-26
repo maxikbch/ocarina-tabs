@@ -9,7 +9,7 @@ export default function OcarinaSvg({
   onToggleHole,
   showLabels = true,
   width = 520,
-  imageHref = "/ocarina.png",
+  imageHref = "./ocarina.png",
 }: {
   fingering: Fingering;
   onToggleHole?: (holeId: HoleId) => void;

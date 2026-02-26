@@ -18,7 +18,7 @@ export function usePiano() {
       soundfont: "FluidR3_GM",
       format: "mp3",
       nameToUrl: (name: string, sf: string, format: string) =>
-        `https://gleitz.github.io/midi-js-soundfonts/${sf}/${name}-${format}.js`,
+        `./soundfonts/${sf}/${name}-${format}.js`,
     }).then((inst) => {
       instrumentRef.current = inst;
       setReady(true);

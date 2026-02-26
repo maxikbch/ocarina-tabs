@@ -11,7 +11,7 @@ import { getFingeringForNote, EMPTY, hasFingeringForNote } from "@/lib/fingering
 import { buildChromaticRange, shiftNote } from "@/lib/notes";
 import type { NoteLabelMode } from "@/lib/noteLabels";
 import { createEmptySongDoc, songDocFromStorage, type SongDoc } from "@/lib/songDoc";
-import { listSongNames, saveSongDoc, loadSongDoc, removeSong, hasSong, downloadBundle, getSongTranspose, clearAllSongs, listSongsWithCategories, listCategories, renameSong, renameCategory, renameSubcategory, setSongCategory, setSongSubcategory } from "@/lib/songStore";
+import { listSongNames, saveSongDoc, loadSongDoc, removeSong, hasSong, downloadBundle, getSongTranspose, clearAllSongs, listSongsWithCategories, listCategories, renameSong, renameCategory, renameSubcategory, setSongCategory, setSongSubcategory, saveDraft, loadDraft, clearDraft, type DraftRecovery } from "@/lib/songStore";
 import SongPickerSidebar from "@/components/SongPickerSidebar";
 import SaveSongModal from "@/components/SaveSongModal";
 import RenameSongModal from "@/components/RenameSongModal";
@@ -20,6 +20,7 @@ import ErrorModal from "@/components/ErrorModal";
 import ConfirmModal from "@/components/ConfirmModal";
 import PromptModal from "@/components/PromptModal";
 import LoadingModal from "@/components/LoadingModal";
+import TitleBar from "@/components/TitleBar";
 import { APP_KEY_BINDINGS, MAX_UNDO_STACK_SIZE, matchesKeyBinding } from "@/lib/config";
 
 export default function Page() {
@@ -52,10 +53,13 @@ export default function Page() {
   const [pendingModeSwitch, setPendingModeSwitch] = useState<"tocar" | "repertorio" | null>(null);
   const pendingModeSwitchRef = useRef<"tocar" | "repertorio" | null>(null);
   const omittedReminderFpRef = useRef<string | null>(null);
+  const [recoveryDraft, setRecoveryDraft] = useState<DraftRecovery | null>(null);
+  const draftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoStackRef = useRef<SongDoc[]>([]);
   const redoStackRef = useRef<SongDoc[]>([]);
   const skipUndoPushRef = useRef(false);
   const docRef = useRef<SongDoc>(doc);
+  const requestCloseRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     docRef.current = doc;
@@ -65,6 +69,27 @@ export default function Page() {
     setSavedNames(listSongNames());
     setAllSongs(listSongsWithCategories());
     setCategories(listCategories());
+  }, []);
+
+  useEffect(() => {
+    const d = loadDraft();
+    if (!d) return;
+    const hasAnyNotes = Object.values(d.doc.sectionsById).some((s) => s.items.length > 0);
+    if (d.savedName || hasAnyNotes) setRecoveryDraft(d);
+    else clearDraft();
+  }, []);
+
+  const [isElectron, setIsElectron] = useState(false);
+  useEffect(() => {
+    setIsElectron(typeof window !== "undefined" && !!(window as any).electron);
+  }, []);
+
+  useEffect(() => {
+    const el = (typeof window !== "undefined" && (window as any).electron) as { onCloseRequest?: (cb: () => void) => void } | undefined;
+    if (!el?.onCloseRequest) return;
+    el.onCloseRequest(() => {
+      void requestCloseRef.current?.();
+    });
   }, []);
 
   const { ready: pianoReady, play } = usePiano();
@@ -112,6 +137,31 @@ export default function Page() {
     }
     return { events, idToRef };
   }, [doc]);
+
+  useEffect(() => {
+    if (mode !== "componer") return;
+    const hasContent = !!selectedSaved || flatSong.events.length > 0;
+    if (!hasContent) return;
+    if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+    draftDebounceRef.current = setTimeout(() => {
+      draftDebounceRef.current = null;
+      saveDraft(doc, transpose, selectedSaved);
+    }, 1000);
+    return () => {
+      if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+    };
+  }, [mode, doc, transpose, selectedSaved, flatSong.events.length]);
+
+  // Al cerrar pestaña o recargar (navegador), guardar draft de último momento
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (mode !== "componer") return;
+      const hasContent = !!selectedSaved || flatSong.events.length > 0;
+      if (hasContent) saveDraft(doc, transpose, selectedSaved);
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [mode, doc, transpose, selectedSaved, flatSong.events.length]);
 
   async function confirmLoseChanges(actionLabel: string): Promise<boolean> {
     if (mode !== "componer") return true;
@@ -318,6 +368,8 @@ export default function Page() {
         imported++;
       }
       setSavedNames(listSongNames());
+      setAllSongs(listSongsWithCategories());
+      setCategories(listCategories());
       setSelectedSaved("");
       showToast(`Importadas ${imported} canciones`);
     } catch (err) {
@@ -432,6 +484,7 @@ export default function Page() {
 
   function performSave(name: string, category: string, subcategory: string) {
     saveSongDoc(name, doc, transpose, category, subcategory);
+    clearDraft();
     setBaselineFp(docFingerprint(doc, transpose));
     const names = listSongNames();
     setSavedNames(names);
@@ -568,18 +621,39 @@ export default function Page() {
     play(ev.note, 0.6);
   }
 
+  requestCloseRef.current = async () => {
+    const ok = await confirmLoseChanges("Cerrar");
+    if (ok) {
+      // Guardar draft justo antes de cerrar para poder recuperar en la próxima sesión
+      const hasContent = !!selectedSaved || flatSong.events.length > 0;
+      if (hasContent) saveDraft(doc, transpose, selectedSaved);
+      (window as any).electron?.close();
+    }
+  };
+
   return (
-    <main style={{ padding: 20, paddingLeft: 100, maxWidth: 1200, margin: "0 auto" }}>
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      <TitleBar onCloseClick={() => void requestCloseRef.current?.()} />
+      <main style={{ flex: 1, minHeight: 0, padding: 20, paddingLeft: 100, maxWidth: 1200, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
       <ModeSidebar
         mode={mode}
         onModeChange={handleModeChange}
         noteLabelMode={noteLabelMode}
         onToggleNotation={() => setNoteLabelMode((m) => (m === "latin" ? "letter" : "latin"))}
+        titleBarOffset={isElectron ? 36 : 0}
       />
 
       <div>
         {mode === "repertorio" ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "calc(100vh - 40px)", minHeight: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              height: isElectron ? "calc(100vh - 37px - 40px - 2px)" : "calc(100vh - 40px - 2px)",
+              minHeight: 0,
+            }}
+          >
             <div style={{ flex: 1, minHeight: 0 }}>
               <CompendiumManager
                 songs={allSongs}
@@ -860,6 +934,70 @@ export default function Page() {
           confirmResolverRef.current?.(true);
         }}
       />
+      {recoveryDraft ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1162,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.35)",
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="recovery-title"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 420px)",
+              background: "#1f1f1f",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 12,
+              padding: 16,
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <div id="recovery-title" style={{ fontWeight: 900, fontSize: 16 }}>Recuperar canción</div>
+            <div style={{ opacity: 0.9, whiteSpace: "pre-line" }}>
+              Tenés una canción recuperada de la última sesión (guardado automático por si hubo un cierre inesperado). ¿Abrir?
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => {
+                  clearDraft();
+                  setRecoveryDraft(null);
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Descartar
+              </button>
+              <button
+                onClick={() => {
+                  const d = recoveryDraft;
+                  if (!d) return;
+                  setDoc(d.doc);
+                  setTranspose(d.transpose);
+                  setSelectedSaved(d.savedName);
+                  setMode("componer");
+                  setBaselineFp(docFingerprint(d.doc, d.transpose));
+                  undoStackRef.current = [];
+                  redoStackRef.current = [];
+                  clearDraft();
+                  setRecoveryDraft(null);
+                  showToast("Canción recuperada");
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Abrir
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {importChoiceMsg ? (
         <div
           style={{
@@ -976,6 +1114,7 @@ export default function Page() {
           {toast}
         </div>
       )}
-    </main>
+      </main>
+    </div>
   );
 }

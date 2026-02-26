@@ -4,6 +4,7 @@ import { songDocFromStorage, songDocToStorage, type SongDoc } from "@/lib/songDo
 const LS_KEY_V6 = "ocarina.songs.v6";
 const LS_KEY_V5 = "ocarina.songs.v5";
 const LS_KEY_V4 = "ocarina.songs.v4";
+const LS_KEY_DRAFT = "ocarina.draft";
 
 type SongV6Entry = {
   transpose: number;
@@ -201,6 +202,55 @@ export function loadSongDoc(name: string): SongDoc | null {
 export function getSongTranspose(name: string): number {
   const store = readStoreV6();
   return store[name]?.transpose ?? 0;
+}
+
+export type DraftRecovery = {
+  doc: SongDoc;
+  transpose: number;
+  savedName: string;
+  savedAt: number;
+};
+
+export function saveDraft(doc: SongDoc, transpose: number, savedName: string = "") {
+  if (typeof window === "undefined") return;
+  try {
+    const { sections, arrangement } = songDocToStorage(doc);
+    const payload = {
+      version: 1,
+      sections,
+      arrangement,
+      transpose: Number(transpose) || 0,
+      savedName: typeof savedName === "string" ? savedName : "",
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(LS_KEY_DRAFT, JSON.stringify(payload));
+  } catch {}
+}
+
+export function loadDraft(): DraftRecovery | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(LS_KEY_DRAFT);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as any;
+    if (!p || p.version !== 1 || !p.sections || !p.arrangement) return null;
+    const doc = songDocFromStorage({ sections: p.sections, arrangement: p.arrangement });
+    return {
+      doc,
+      transpose: typeof p.transpose === "number" ? p.transpose : 0,
+      savedName: typeof p.savedName === "string" ? p.savedName : "",
+      savedAt: typeof p.savedAt === "number" ? p.savedAt : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function clearDraft() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(LS_KEY_DRAFT);
+  } catch {}
 }
 
 export function removeSong(name: string) {

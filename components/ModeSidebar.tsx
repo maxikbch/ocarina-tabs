@@ -112,11 +112,13 @@ export default function ModeSidebar({
   onModeChange,
   noteLabelMode,
   onToggleNotation,
+  titleBarOffset = 0,
 }: {
   mode: AppMode;
   onModeChange: (mode: AppMode) => void;
   noteLabelMode: NoteLabelMode;
   onToggleNotation: () => void;
+  titleBarOffset?: number;
 }) {
   const [notationTooltipToken, setNotationTooltipToken] = useState(0);
 
@@ -126,7 +128,7 @@ export default function ModeSidebar({
         width: "fit-content",
         position: "fixed",
         left: 0,
-        top: 0,
+        top: titleBarOffset,
         bottom: 0,
         display: "flex",
         flexDirection: "column",
