@@ -141,7 +141,7 @@ export default function Page() {
   useEffect(() => {
     if (mode !== "componer") return;
     const hasContent = !!selectedSaved || flatSong.events.length > 0;
-    if (!hasContent) return;
+    if (!hasContent || !isDirty) return;
     if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
     draftDebounceRef.current = setTimeout(() => {
       draftDebounceRef.current = null;
@@ -150,18 +150,18 @@ export default function Page() {
     return () => {
       if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
     };
-  }, [mode, doc, transpose, selectedSaved, flatSong.events.length]);
+  }, [mode, doc, transpose, selectedSaved, flatSong.events.length, isDirty]);
 
-  // Al cerrar pestaña o recargar (navegador), guardar draft de último momento
+  // Al cerrar pestaña o recargar (navegador), guardar draft de último momento solo si hay cambios sin guardar
   useEffect(() => {
     const onBeforeUnload = () => {
       if (mode !== "componer") return;
       const hasContent = !!selectedSaved || flatSong.events.length > 0;
-      if (hasContent) saveDraft(doc, transpose, selectedSaved);
+      if (hasContent && isDirty) saveDraft(doc, transpose, selectedSaved);
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [mode, doc, transpose, selectedSaved, flatSong.events.length]);
+  }, [mode, doc, transpose, selectedSaved, flatSong.events.length, isDirty]);
 
   async function confirmLoseChanges(actionLabel: string): Promise<boolean> {
     if (mode !== "componer") return true;
@@ -624,23 +624,45 @@ export default function Page() {
   requestCloseRef.current = async () => {
     const ok = await confirmLoseChanges("Cerrar");
     if (ok) {
-      // Guardar draft justo antes de cerrar para poder recuperar en la próxima sesión
+      // Guardar draft solo si había cambios sin guardar, para poder recuperar en la próxima sesión
       const hasContent = !!selectedSaved || flatSong.events.length > 0;
-      if (hasContent) saveDraft(doc, transpose, selectedSaved);
+      if (hasContent && isDirty) saveDraft(doc, transpose, selectedSaved);
       (window as any).electron?.close();
     }
   };
 
+  const titleBarHeight = isElectron ? 37 : 0; // 36px + 1px border
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
       <TitleBar onCloseClick={() => void requestCloseRef.current?.()} />
-      <main style={{ flex: 1, minHeight: 0, padding: 20, paddingLeft: 100, maxWidth: 1200, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+      {/* Contenedor de scroll a ancho completo: la barra queda al borde y los espacios vacíos scrollean con el contenido */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          width: "100%",
+          overflow: "auto",
+          boxSizing: "border-box",
+        }}
+      >
+        <main
+          style={{
+            paddingTop: titleBarHeight ? titleBarHeight + 20 : 20,
+            paddingRight: 20,
+            paddingBottom: 20,
+            paddingLeft: 100,
+            maxWidth: 1200,
+            margin: "0 auto",
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        >
       <ModeSidebar
         mode={mode}
         onModeChange={handleModeChange}
         noteLabelMode={noteLabelMode}
         onToggleNotation={() => setNoteLabelMode((m) => (m === "latin" ? "letter" : "latin"))}
-        titleBarOffset={isElectron ? 36 : 0}
+        titleBarOffset={isElectron ? 37 : 0}
       />
 
       <div>
@@ -1115,6 +1137,7 @@ export default function Page() {
         </div>
       )}
       </main>
+      </div>
     </div>
   );
 }

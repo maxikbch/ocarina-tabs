@@ -40,6 +40,11 @@ export default function TitleBar({
   return (
     <div
       style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
         height: titleBarHeight,
         minHeight: titleBarHeight,
         background: "#0d0d0d",
