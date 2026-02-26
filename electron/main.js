@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -10,11 +11,23 @@ function getOutDir() {
     : path.join(__dirname, "..", "out");
 }
 
+function getIconPath() {
+  const base = app.getAppPath();
+  // En Windows el .ico suele verse mejor en la barra de tareas; si existe, usarlo
+  if (process.platform === "win32") {
+    const ico = path.join(base, "app", "app-icon.ico");
+    if (fs.existsSync(ico)) return ico;
+  }
+  return path.join(base, "app", "app-icon.png");
+}
+
 function createWindow() {
   const outDir = getOutDir();
   const indexPath = path.join(outDir, "index.html");
 
   let allowClose = false;
+
+  const iconPath = getIconPath();
 
   const win = new BrowserWindow({
     width: 1200,
@@ -22,6 +35,7 @@ function createWindow() {
     show: false,
     frame: false,
     titleBarStyle: "hidden",
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

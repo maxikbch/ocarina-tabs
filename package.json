@@ -34,7 +34,7 @@
     "appId": "com.ocarina-tabs.prototype",
     "productName": "Ocarina Tabs",
     "icon": "app/app-icon.png",
-    "files": ["electron/**", "package.json"],
+    "files": ["electron/**", "package.json", "app/app-icon.png"],
     "extraResources": [
       { "from": "out", "to": "out" }
     ],
