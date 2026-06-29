@@ -14,6 +14,7 @@
     "build:app": "npm run build:next && electron-builder"
   },
   "dependencies": {
+    "@tonejs/midi": "^2.0.28",
     "html-to-image": "^1.11.13",
     "nanoid": "5.0.7",
     "next": "14.2.5",
@@ -34,21 +35,37 @@
     "appId": "com.ocarina-tabs.prototype",
     "productName": "Ocarina Tabs",
     "icon": "app/app-icon.png",
-    "files": ["electron/**", "package.json", "app/app-icon.png"],
-    "extraResources": [
-      { "from": "out", "to": "out" }
+    "files": [
+      "electron/**",
+      "package.json",
+      "app/app-icon.png"
     ],
-    "directories": { "output": "release" },
+    "extraResources": [
+      {
+        "from": "out",
+        "to": "out"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "signAndEditExecutable": false
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.music"
     },
     "linux": {
-      "target": ["AppImage"]
+      "target": [
+        "AppImage"
+      ]
     }
   }
 }

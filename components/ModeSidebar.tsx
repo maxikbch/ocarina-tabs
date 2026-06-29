@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { NoteLabelMode } from "@/lib/noteLabels";
 
-export type AppMode = "tocar" | "componer" | "repertorio";
+export type AppMode = "tocar" | "componer" | "componer-beta" | "repertorio";
 
 function SidebarIconButton({
   active,
@@ -157,7 +157,8 @@ export default function ModeSidebar({
           Modo
         </div>
         <SidebarIconButton active={mode === "tocar"} icon={"▶"} label="Modo: tocar" tooltip="Tocar" onClick={() => onModeChange("tocar")} />
-        <SidebarIconButton active={mode === "componer"} icon={"✎"} label="Modo: componer" tooltip="Componer" onClick={() => onModeChange("componer")} />
+        <SidebarIconButton active={mode === "componer"} icon={"✎"} label="Modo: componer" tooltip="Componer (clásico)" onClick={() => onModeChange("componer")} />
+        <SidebarIconButton active={mode === "componer-beta"} icon={"♫"} label="Modo: componer beta" tooltip="Componer β — línea de tiempo" onClick={() => onModeChange("componer-beta")} />
         <SidebarIconButton active={mode === "repertorio"} icon={"☰"} label="Modo: compendio" tooltip="Compendio" onClick={() => onModeChange("repertorio")} />
       </div>
 

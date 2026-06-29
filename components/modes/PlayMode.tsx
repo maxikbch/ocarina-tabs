@@ -24,6 +24,7 @@ export default function PlayMode({
   onRemoveEvent,
   onReorderEvent,
   noteLabelMode,
+  playBlocked,
 }: {
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   /** Offset desde el top del viewport para el sticky (p. ej. 12 + altura barra título en Electron) */
@@ -37,6 +38,7 @@ export default function PlayMode({
   onRemoveEvent: (id: string) => void;
   onReorderEvent: (sourceId: string, targetIndex: number) => void;
   noteLabelMode: NoteLabelMode;
+  playBlocked?: { reason: string; conflictCount: number } | null;
 }) {
   const [selectedSectionInstanceId, setSelectedSectionInstanceId] = useState<string | null>(null);
   const sectionElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -182,6 +184,23 @@ export default function PlayMode({
         </div>
       </div>
 
+      {playBlocked ? (
+        <div
+          style={{
+            borderRadius: 14,
+            border: "1px solid rgba(255, 165, 0, 0.45)",
+            background: "rgba(255, 140, 0, 0.12)",
+            padding: "14px 16px",
+            color: "rgba(255, 220, 160, 0.98)",
+            fontSize: 14,
+            fontWeight: 700,
+          }}
+        >
+          {playBlocked.reason}
+          {playBlocked.conflictCount > 0 ? ` (${playBlocked.conflictCount} conflicto${playBlocked.conflictCount === 1 ? "" : "s"})` : ""}
+        </div>
+      ) : null}
+
       {sections.length === 0 ? (
         <SongTimeline
           song={[]}
@@ -191,7 +210,11 @@ export default function PlayMode({
           labelMode={noteLabelMode}
           onReorder={onReorderEvent}
           viewMode="tabs"
-          emptyText="Selecciona una cancion o crea una nueva en el modo componer"
+          emptyText={
+            playBlocked
+              ? "Corrige los conflictos en Componer β para ver la canción aquí"
+              : "Selecciona una cancion o crea una nueva en el modo componer"
+          }
           editable={false}
           scale={0.66}
           forceSquare={true}

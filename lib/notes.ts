@@ -39,6 +39,27 @@ export function buildChromaticRange(opts: { from: string; to: string }): string[
   return out;
 }
 
+/** Rango cromático amplio del piano roll (p. ej. MIDI con mucha amplitud). */
+export const PIANO_ROLL_RANGE = { from: "C2", to: "C7" } as const;
+
+const PIANO_ROLL_PAD_SEMITONES = 12;
+
+/** Grilla del compositor β: rango base + notas de la canción con margen. */
+export function buildPianoRollNotes(displayNotes: string[] = []): string[] {
+  let min = toIndex(PIANO_ROLL_RANGE.from);
+  let max = toIndex(PIANO_ROLL_RANGE.to);
+  for (const note of displayNotes) {
+    try {
+      const idx = toIndex(note);
+      min = Math.min(min, idx - PIANO_ROLL_PAD_SEMITONES);
+      max = Math.max(max, idx + PIANO_ROLL_PAD_SEMITONES);
+    } catch {
+      /* nota fuera de formato */
+    }
+  }
+  return buildChromaticRange({ from: fromIndex(min), to: fromIndex(max) });
+}
+
 // Desplaza una nota N semitonos (positivo hacia arriba, negativo hacia abajo)
 export function shiftNote(noteId: string, semitones: number): string {
   if (!semitones) return noteId;

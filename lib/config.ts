@@ -55,6 +55,25 @@ export const PLAY_MODE_KEY_BINDINGS = {
   nextSection: { key: "ArrowRight" },
 } as const;
 
+/** Atajos del compositor β (línea de tiempo). */
+export const COMPOSER_V2_KEY_BINDINGS = {
+  clearSelection: { key: "Escape" },
+  delete: [
+    { key: "Delete" },
+    { key: "Backspace" },
+  ] as KeyBinding[],
+  playPause: { key: " " },
+  transportStop: { key: "Home" },
+  copy: { key: "c", ctrlOrMeta: true },
+  cut: { key: "x", ctrlOrMeta: true },
+  paste: { key: "v", ctrlOrMeta: true },
+  duplicate: { key: "d", ctrlOrMeta: true },
+  nudgeLeft: { key: "ArrowLeft" },
+  nudgeRight: { key: "ArrowRight" },
+  nudgeUp: { key: "ArrowUp" },
+  nudgeDown: { key: "ArrowDown" },
+} as const;
+
 /** Atajos globales (p. ej. guardar en modo componer). */
 export const APP_KEY_BINDINGS = {
   save: { key: "s", ctrlOrMeta: true },

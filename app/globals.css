@@ -39,3 +39,16 @@
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Componer β: sin barras de scroll; navegación con clic derecho (paneo). */
+.composer-v2-pan-viewport {
+  overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.composer-v2-pan-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}

@@ -3,7 +3,33 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { downloadBundleForNames, makeSongShareCode } from "@/lib/songStore";
 
-export type CompendiumSongRef = { name: string; category: string; subcategory: string };
+export type CompendiumSongRef = { name: string; category: string; subcategory: string; format?: "v1" | "v2" };
+
+function SongNameLabel({ song }: { song: CompendiumSongRef }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", minWidth: 0 }}>
+      <span style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
+        {song.name}
+      </span>
+      {song.format === "v2" ? (
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 900,
+            padding: "1px 5px",
+            borderRadius: 4,
+            background: "rgba(40, 72, 52, 0.65)",
+            color: "#b8e8c8",
+            flexShrink: 0,
+          }}
+          title="Canción con timeline (Componer β)"
+        >
+          β
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 type BrowseMode = "cat_subcat" | "cat" | "subcat" | "all";
 type SortField = "name" | "subcategory";
@@ -445,7 +471,15 @@ export default function CompendiumManager({
     const count = Object.keys(songsAny).length;
     if (count <= 0) return { ok: false, error: "El compendio no contiene canciones." };
 
-    return { ok: true, info: `Archivo válido. Versión: ${versionLabel}. Canciones: ${count}.` };
+    let extra = "";
+    if (versionLabel === "7") {
+      const withDoc = Object.values(songsAny).filter(
+        (e) => e && typeof e === "object" && "doc" in (e as object)
+      ).length;
+      extra = withDoc > 0 ? ` Timeline: ${withDoc}.` : "";
+    }
+
+    return { ok: true, info: `Archivo válido. Versión: ${versionLabel}. Canciones: ${count}.${extra}` };
   }
 
   async function setImportCandidate(file: File) {
@@ -790,7 +824,7 @@ export default function CompendiumManager({
                     }}
                     title={(s.subcategory || "").trim() ? `Subcategoría: ${s.subcategory}` : (s.category || "").trim() ? `Categoría: ${s.category}` : "Sin categoría"}
                   >
-                    <div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{s.name}</div>
+                    <SongNameLabel song={s} />
                     <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{secondaryLabel(s)}</div>
                   </button>
                 ))
@@ -894,7 +928,7 @@ export default function CompendiumManager({
                       justifyContent: "center",
                     }}
                   >
-                    <div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{s.name}</div>
+                    <SongNameLabel song={s} />
                     <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{secondaryLabel(s)}</div>
                   </button>
                 ))
@@ -997,7 +1031,7 @@ export default function CompendiumManager({
                       justifyContent: "center",
                     }}
                   >
-                    <div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{s.name}</div>
+                    <SongNameLabel song={s} />
                     <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{secondaryLabel(s)}</div>
                   </button>
                 ))
@@ -1103,7 +1137,7 @@ export default function CompendiumManager({
                           justifyContent: "center",
                         }}
                       >
-                        <div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{s.name}</div>
+                        <SongNameLabel song={s} />
                         <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
                           {secondaryLabel(s)}
                         </div>
@@ -1204,7 +1238,7 @@ export default function CompendiumManager({
                       justifyContent: "center",
                     }}
                   >
-                    <div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{s.name}</div>
+                    <SongNameLabel song={s} />
                     <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{secondaryLabel(s)}</div>
                   </button>
                 ))
@@ -2013,7 +2047,7 @@ export default function CompendiumManager({
                     setImportSongCode(e.target.value);
                     setImportSongScanError("");
                   }}
-                  placeholder="OC6:... o OC6GZ:..."
+                  placeholder="OC6:... OC6GZ:... OC7:... OC7GZ:..."
                   style={{
                     width: "100%",
                     maxWidth: "100%",
@@ -2059,12 +2093,16 @@ export default function CompendiumManager({
                         setImportSongScanError("Pegá un código.");
                         return;
                       }
-                      if (!raw.startsWith("OC6:") && !raw.startsWith("OC6GZ:")) {
-                        setImportSongScanError("El código debe empezar con OC6: o OC6GZ:.");
+                      const isValidPrefix =
+                        raw.startsWith("OC6:") ||
+                        raw.startsWith("OC6GZ:") ||
+                        raw.startsWith("OC7:") ||
+                        raw.startsWith("OC7GZ:");
+                      if (!isValidPrefix) {
+                        setImportSongScanError("El código debe empezar con OC6:, OC6GZ:, OC7: u OC7GZ:.");
                         return;
                       }
-                      // Validación superficial de caracteres para evitar pegar basura gigante
-                      const payload = raw.split(":")[1] || "";
+                      const payload = raw.split(":").slice(1).join(":") || "";
                       if (!payload || payload.length < 16) {
                         setImportSongScanError("El código parece incompleto.");
                         return;

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { nanoid } from "nanoid";
 import ModeSidebar from "@/components/ModeSidebar";
 import ComposeMode from "@/components/modes/ComposeMode";
+import ComposeModeV2 from "@/components/modes/ComposeModeV2";
 import PlayMode from "@/components/modes/PlayMode";
 import CompendiumManager from "@/components/CompendiumManager";
 import type { Fingering, HoleId, NoteEvent, NoteId } from "@/lib/types";
@@ -11,7 +12,11 @@ import { getFingeringForNote, EMPTY, hasFingeringForNote } from "@/lib/fingering
 import { buildChromaticRange, shiftNote } from "@/lib/notes";
 import type { NoteLabelMode } from "@/lib/noteLabels";
 import { createEmptySongDoc, songDocFromStorage, type SongDoc } from "@/lib/songDoc";
-import { listSongNames, saveSongDoc, loadSongDoc, removeSong, hasSong, downloadBundle, getSongTranspose, clearAllSongs, listSongsWithCategories, listCategories, renameSong, renameCategory, renameSubcategory, setSongCategory, setSongSubcategory, saveDraft, loadDraft, clearDraft, type DraftRecovery } from "@/lib/songStore";
+import { createEmptySongDocV2, docFingerprintV2, sortEventsByTick, type SongDocV2 } from "@/lib/songDocV2";
+import { migrateV1ToV2 } from "@/lib/songDocMigrate";
+import { flattenDocV2ForPlay, songDocV2ToSongDocV1 } from "@/lib/songDocV2Adapter";
+import { analyzePlayability } from "@/lib/songConflicts";
+import { listSongNames, saveSongDoc, loadSongDoc, removeSong, hasSong, downloadBundle, getSongTranspose, clearAllSongs, listSongsWithCategories, listCategories, renameSong, renameCategory, renameSubcategory, setSongCategory, setSongSubcategory, saveDraft, loadDraft, clearDraft, type DraftRecovery, saveSongDocV2, loadSongDocV2, getSongDocFormat, saveDraftV2, loadDraftV2, clearDraftV2, type DraftRecoveryV2, importCompendiumParsed, parseShareCode } from "@/lib/songStore";
 import SongPickerSidebar from "@/components/SongPickerSidebar";
 import SaveSongModal from "@/components/SaveSongModal";
 import RenameSongModal from "@/components/RenameSongModal";
@@ -28,12 +33,14 @@ export default function Page() {
   const NOTES = useMemo(() => buildChromaticRange({ from: "C4", to: "C6" }), []);
 
   const [doc, setDoc] = useState<SongDoc>(() => createEmptySongDoc());
+  const [docV2, setDocV2] = useState<SongDocV2>(() => createEmptySongDocV2());
+  const [activeSongFormat, setActiveSongFormat] = useState<"v1" | "v2" | null>(null);
   const [selectedPlayId, setSelectedPlayId] = useState<string | null>(null);
   const [noteLabelMode, setNoteLabelMode] = useState<NoteLabelMode>("latin");
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [selectedSaved, setSelectedSaved] = useState<string>("");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [allSongs, setAllSongs] = useState<Array<{ name: string; category: string; subcategory: string }>>([]);
+  const [allSongs, setAllSongs] = useState<Array<{ name: string; category: string; subcategory: string; format?: "v1" | "v2" }>>([]);
   const [saveOpen, setSaveOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -49,24 +56,35 @@ export default function Page() {
   const [exportLoading, setExportLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [baselineFp, setBaselineFp] = useState<string>(() => "");
+  const [baselineFpV2, setBaselineFpV2] = useState<string>(() => "");
   const baselineFpRef = useRef<string>("");
+  const baselineFpV2Ref = useRef<string>("");
   const justSavedRef = useRef<boolean>(false);
   const [unsavedReminderOpen, setUnsavedReminderOpen] = useState(false);
-  const [pendingModeSwitch, setPendingModeSwitch] = useState<"tocar" | "repertorio" | null>(null);
-  const pendingModeSwitchRef = useRef<"tocar" | "repertorio" | null>(null);
+  const [pendingModeSwitch, setPendingModeSwitch] = useState<"tocar" | "componer" | "componer-beta" | "repertorio" | null>(null);
+  const pendingModeSwitchRef = useRef<"tocar" | "componer" | "componer-beta" | "repertorio" | null>(null);
   const omittedReminderFpRef = useRef<string | null>(null);
   const [recoveryDraft, setRecoveryDraft] = useState<DraftRecovery | null>(null);
+  const [recoveryDraftV2, setRecoveryDraftV2] = useState<DraftRecoveryV2 | null>(null);
   const draftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoStackRef = useRef<SongDoc[]>([]);
   const redoStackRef = useRef<SongDoc[]>([]);
+  const undoStackV2Ref = useRef<SongDocV2[]>([]);
+  const redoStackV2Ref = useRef<SongDocV2[]>([]);
   const skipUndoPushRef = useRef(false);
+  const skipUndoPushV2Ref = useRef(false);
   const docRef = useRef<SongDoc>(doc);
+  const docV2Ref = useRef<SongDocV2>(docV2);
   const requestCloseRef = useRef<() => Promise<void>>(async () => {});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     docRef.current = doc;
   }, [doc]);
+
+  useEffect(() => {
+    docV2Ref.current = docV2;
+  }, [docV2]);
 
   useEffect(() => {
     setSavedNames(listSongNames());
@@ -76,10 +94,17 @@ export default function Page() {
 
   useEffect(() => {
     const d = loadDraft();
-    if (!d) return;
-    const hasAnyNotes = Object.values(d.doc.sectionsById).some((s) => s.items.length > 0);
-    if (d.savedName || hasAnyNotes) setRecoveryDraft(d);
-    else clearDraft();
+    if (d) {
+      const hasAnyNotes = Object.values(d.doc.sectionsById).some((s) => s.items.length > 0);
+      if (d.savedName || hasAnyNotes) setRecoveryDraft(d);
+      else clearDraft();
+    }
+    const d2 = loadDraftV2();
+    if (d2) {
+      const hasAny = Object.values(d2.doc.sectionsById).some((s) => s.events.some((e) => e.kind === "note"));
+      if (d2.savedName || hasAny) setRecoveryDraftV2(d2);
+      else clearDraftV2();
+    }
   }, []);
 
   const [isElectron, setIsElectron] = useState(false);
@@ -99,7 +124,7 @@ export default function Page() {
   const [transpose, setTranspose] = useState<number>(0);
   const [testMode, setTestMode] = useState<boolean>(false);
   const [freeMode, setFreeMode] = useState<boolean>(false);
-  const [mode, setMode] = useState<"tocar" | "componer" | "repertorio">("tocar");
+  const [mode, setMode] = useState<"tocar" | "componer" | "componer-beta" | "repertorio">("tocar");
 
   function docFingerprint(d: SongDoc, t: number): string {
     const sections = Object.keys(d.sectionsById)
@@ -113,10 +138,12 @@ export default function Page() {
   }
 
   useEffect(() => {
-    // baseline inicial = estado inicial de doc+transpose
     const fp = docFingerprint(doc, transpose);
+    const fp2 = docFingerprintV2(docV2, transpose);
     setBaselineFp((cur) => (cur ? cur : fp));
+    setBaselineFpV2((cur) => (cur ? cur : fp2));
     baselineFpRef.current = baselineFpRef.current || fp;
+    baselineFpV2Ref.current = baselineFpV2Ref.current || fp2;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -124,6 +151,11 @@ export default function Page() {
     if (!baselineFp) return false;
     return docFingerprint(doc, transpose) !== baselineFp;
   }, [doc, transpose, baselineFp]);
+
+  const isDirtyV2 = useMemo(() => {
+    if (!baselineFpV2) return false;
+    return docFingerprintV2(docV2, transpose) !== baselineFpV2;
+  }, [docV2, transpose, baselineFpV2]);
 
   const flatSong = useMemo(() => {
     const events: NoteEvent[] = [];
@@ -143,6 +175,21 @@ export default function Page() {
     return { events, idToRef };
   }, [doc]);
 
+  const flatSongV2 = useMemo(() => flattenDocV2ForPlay(docV2), [docV2]);
+
+  const v2Playability = useMemo(
+    () => analyzePlayability(docV2, { visibleOnly: true }),
+    [docV2]
+  );
+
+  const flatSongV2NoteCount = useMemo(() => {
+    let n = 0;
+    for (const sec of Object.values(docV2.sectionsById)) {
+      n += sec.events.filter((e) => e.kind === "note").length;
+    }
+    return n;
+  }, [docV2]);
+
   useEffect(() => {
     if (mode !== "componer") return;
     const hasContent = !!selectedSaved || flatSong.events.length > 0;
@@ -157,27 +204,59 @@ export default function Page() {
     };
   }, [mode, doc, transpose, selectedSaved, flatSong.events.length, isDirty]);
 
-  // Al cerrar pestaña o recargar (navegador), guardar draft de último momento solo si hay cambios sin guardar
+  useEffect(() => {
+    if (mode !== "componer-beta") return;
+    const hasContent = !!selectedSaved || flatSongV2NoteCount > 0;
+    if (!hasContent || !isDirtyV2) return;
+    if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+    draftDebounceRef.current = setTimeout(() => {
+      draftDebounceRef.current = null;
+      saveDraftV2(docV2, transpose, selectedSaved);
+    }, 1000);
+    return () => {
+      if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+    };
+  }, [mode, docV2, transpose, selectedSaved, flatSongV2NoteCount, isDirtyV2]);
+
   useEffect(() => {
     const onBeforeUnload = () => {
-      if (mode !== "componer") return;
-      const hasContent = !!selectedSaved || flatSong.events.length > 0;
-      if (hasContent && isDirty) saveDraft(doc, transpose, selectedSaved);
+      if (mode === "componer") {
+        const hasContent = !!selectedSaved || flatSong.events.length > 0;
+        if (hasContent && isDirty) saveDraft(doc, transpose, selectedSaved);
+      }
+      if (mode === "componer-beta") {
+        const hasContent = !!selectedSaved || flatSongV2NoteCount > 0;
+        if (hasContent && isDirtyV2) saveDraftV2(docV2, transpose, selectedSaved);
+      }
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [mode, doc, transpose, selectedSaved, flatSong.events.length, isDirty]);
+  }, [mode, doc, docV2, transpose, selectedSaved, flatSong.events.length, flatSongV2NoteCount, isDirty, isDirtyV2]);
 
   async function confirmLoseChanges(actionLabel: string): Promise<boolean> {
-    if (mode !== "componer") return true;
-    if (!isDirty) return true;
-    if (!selectedSaved && flatSong.events.length === 0) return true;
-    return await askConfirm(`La canción actual tiene cambios sin guardar.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`);
+    if (mode === "componer") {
+      if (!isDirty) return true;
+      if (!selectedSaved && flatSong.events.length === 0) return true;
+      return await askConfirm(`La canción actual tiene cambios sin guardar.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`);
+    }
+    if (mode === "componer-beta") {
+      if (!isDirtyV2) return true;
+      if (!selectedSaved && flatSongV2NoteCount === 0) return true;
+      return await askConfirm(`La canción actual tiene cambios sin guardar.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`);
+    }
+    return true;
   }
 
   const displaySong = useMemo<NoteEvent[]>(() => {
-    if (!transpose) return flatSong.events;
-    return flatSong.events.map((ev) => {
+    const useV2 = activeSongFormat === "v2" || (activeSongFormat === null && flatSongV2NoteCount > 0 && flatSong.events.length === 0);
+    const source =
+      useV2 && v2Playability.playable
+        ? flatSongV2.events
+        : useV2
+        ? []
+        : flatSong.events;
+    if (!transpose) return source;
+    return source.map((ev) => {
       if (ev.note === "—" || ev.note === "SPACE" || ev.note === "⏎" || ev.note === "BR" || ev.note === "SALTO") {
         return ev;
       }
@@ -186,11 +265,38 @@ export default function Page() {
       const snapshot: Fingering = typeof structuredClone === "function" ? structuredClone(f) : { ...f };
       return { ...ev, note: shownNote, fingering: snapshot };
     });
-  }, [flatSong.events, transpose]);
+  }, [flatSong.events, flatSongV2.events, activeSongFormat, v2Playability.playable, transpose]);
+
+  const playBlocked = useMemo(() => {
+    const useV2 = activeSongFormat === "v2" || (activeSongFormat === null && flatSongV2NoteCount > 0 && flatSong.events.length === 0);
+    if (!useV2) return null;
+    if (!selectedSaved && flatSongV2NoteCount === 0) return null;
+    if (v2Playability.playable) return null;
+    return {
+      reason: "Esta canción tiene notas superpuestas. Abrila en Componer β para corregirla.",
+      conflictCount: v2Playability.conflicts.length,
+    };
+  }, [activeSongFormat, selectedSaved, flatSongV2NoteCount, flatSong.events.length, v2Playability]);
 
   const playSections = useMemo(() => {
     const byId = new Map<string, NoteEvent>();
     for (const ev of displaySong) byId.set(ev.id, ev);
+
+    const useV2 = activeSongFormat === "v2" || (activeSongFormat === null && flatSongV2NoteCount > 0 && flatSong.events.length === 0);
+    if (useV2) {
+      return docV2.arrangement
+        .map((inst) => {
+          const sec = docV2.sectionsById[inst.sectionId];
+          if (!sec) return null;
+          const sorted = sortEventsByTick(sec.events);
+          const events = sorted
+            .map((it) => byId.get(`${inst.id}:${it.id}`))
+            .filter(Boolean) as NoteEvent[];
+          return { instanceId: inst.id, name: sec.name, events };
+        })
+        .filter(Boolean) as Array<{ instanceId: string; name: string; events: NoteEvent[] }>;
+    }
+
     return doc.arrangement
       .map((inst) => {
         const sec = doc.sectionsById[inst.sectionId];
@@ -201,7 +307,7 @@ export default function Page() {
         return { instanceId: inst.id, name: sec.name, events };
       })
       .filter(Boolean) as Array<{ instanceId: string; name: string; events: NoteEvent[] }>;
-  }, [doc, displaySong]);
+  }, [doc, docV2, displaySong, activeSongFormat, flatSongV2NoteCount, flatSong.events.length]);
 
   function incTranspose() {
     setTranspose((t) => t + 1);
@@ -239,46 +345,7 @@ export default function Page() {
     try {
       setImportLoading(true);
       const text = await file.text();
-      const parsed = JSON.parse(text) as any;
-      let songsAny: any = null;
-      if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 6 && parsed.songs) {
-        songsAny = parsed.songs;
-      } else if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 5 && parsed.songs) {
-        songsAny = parsed.songs as Record<string, { notes: string[]; transpose?: number }>;
-      } else if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 4 && parsed.songs) {
-        songsAny = parsed.songs as Record<string, { notes: string[]; transpose?: number }>;
-      } else if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 3 && parsed.songs) {
-        songsAny = parsed.songs as Record<string, { notes: string[]; transpose?: number }>;
-      } else if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 2 && parsed.songs) {
-        songsAny = parsed.songs; // { name: { notes: [...] } }
-      } else if (parsed && typeof parsed === "object" && "version" in parsed && parsed.version === 1 && parsed.songs) {
-        songsAny = parsed.songs; // legacy { name: NoteEvent[] }
-      } else if (parsed && typeof parsed === "object") {
-        songsAny = parsed; // could be plain map
-      }
-      if (!songsAny || typeof songsAny !== "object") {
-        setErrorMsg("Archivo inválido.");
-        return;
-      }
-
-      function flattenNotesFromDoc(d: SongDoc): string[] {
-        const out: string[] = [];
-        for (const inst of d.arrangement) {
-          const sec = d.sectionsById[inst.sectionId];
-          if (!sec) continue;
-          for (const it of sec.items) out.push(it.note);
-        }
-        return out;
-      }
-
-      function docFromNotes(notes: string[]): SongDoc {
-        // Build via storage roundtrip for simplicity
-        const realSid = nanoid();
-        return songDocFromStorage({
-          sections: { [realSid]: { name: "General", notes: notes || [] } },
-          arrangement: [{ sectionId: realSid }],
-        });
-      }
+      const parsed = JSON.parse(text) as unknown;
 
       function baseRootName(name: string): string {
         const trimmed = (name || "").trim();
@@ -317,118 +384,34 @@ export default function Page() {
         }
       }
 
-      let imported = 0;
-      for (const [name, payload] of Object.entries(songsAny)) {
-        const trimmed = (name || "").trim();
-        if (!trimmed) continue;
+      const result = await importCompendiumParsed(parsed, {
+        hasSong,
+        askImportChoice,
+        askSaveAsName,
+      });
 
-        let incomingDoc: SongDoc | null = null;
-        let incomingTranspose: number = 0;
-        let incomingCategory: string = "";
-        let incomingSubcategory: string = "";
-
-        if (payload && Array.isArray(payload)) {
-          const incomingNotes = (payload as any[]).map((e) => (e && typeof e === "object" ? (e as any).note : null)).filter(Boolean) as string[];
-          incomingDoc = docFromNotes(incomingNotes);
-        } else if (payload && typeof payload === "object") {
-          if ((payload as any).sections && (payload as any).arrangement) {
-            incomingDoc = songDocFromStorage({ sections: (payload as any).sections, arrangement: (payload as any).arrangement });
-          } else if (Array.isArray((payload as any).notes)) {
-            incomingDoc = docFromNotes((payload as any).notes as string[]);
-          }
-          if (typeof (payload as any).transpose === "number") incomingTranspose = (payload as any).transpose as number;
-          if (typeof (payload as any).category === "string") incomingCategory = (payload as any).category as string;
-          if (typeof (payload as any).subcategory === "string") incomingSubcategory = (payload as any).subcategory as string;
-        }
-        if (!incomingDoc) continue;
-
-        const existingDoc = loadSongDoc(trimmed);
-        const a = existingDoc ? flatNotesStringFromStore(flattenNotesFromDoc(existingDoc)) : "";
-        const b = flatNotesStringFromStore(flattenNotesFromDoc(incomingDoc));
-
-        if (!existingDoc) {
-          saveSongDoc(trimmed, incomingDoc, incomingTranspose, incomingCategory, incomingSubcategory);
-          imported++;
-          continue;
-        }
-
-        if (a === b) {
-          continue;
-        }
-        const choice = await askImportChoice(
-          `La canción "${trimmed}" ya existe.\n\nActual:\n${a}\n\nNueva:\n${b}\n\n¿Qué querés hacer?`
-        );
-        if (choice === "skip") {
-          continue;
-        }
-        if (choice === "overwrite") {
-          saveSongDoc(trimmed, incomingDoc, incomingTranspose, incomingCategory, incomingSubcategory);
-          imported++;
-          continue;
-        }
-        // rename
-        const newName = await askSaveAsName(trimmed);
-        if (!newName) continue;
-        saveSongDoc(newName, incomingDoc, incomingTranspose, incomingCategory, incomingSubcategory);
-        imported++;
-      }
       setSavedNames(listSongNames());
       setAllSongs(listSongsWithCategories());
       setCategories(listCategories());
       setSelectedSaved("");
-      showToast(`Importadas ${imported} canciones`);
+
+      if (result.imported === 0) {
+        showToast(result.skipped > 0 ? "No se importaron canciones nuevas" : "No se importaron canciones");
+      } else if (result.migrated > 0) {
+        showToast(`Importadas ${result.imported} canciones (${result.migrated} migradas desde formato legacy)`);
+      } else {
+        showToast(`Importadas ${result.imported} canciones`);
+      }
     } catch (err) {
-      setErrorMsg("No se pudo leer el archivo de compendio.");
+      const msg = err instanceof Error ? err.message : "";
+      setErrorMsg(msg || "No se pudo leer el archivo de compendio.");
     } finally {
       setImportLoading(false);
     }
   }
 
-  function base64UrlToBytes(b64url: string): Uint8Array {
-    const cleaned = (b64url || "").replace(/[\r\n\s]/g, "");
-    const b64 = cleaned.replace(/-/g, "+").replace(/_/g, "/");
-    const padLen = (4 - (b64.length % 4)) % 4;
-    const padded = b64 + "=".repeat(padLen);
-    const bin = atob(padded);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  }
-
-  async function gunzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
-    const DS: any = (globalThis as any).DecompressionStream;
-    if (!DS) throw new Error("Tu navegador no soporta códigos comprimidos (gzip). Probá exportar el código en un navegador moderno.");
-    const ds = new DS("gzip");
-    const stream = new Blob([bytes as unknown as BlobPart]).stream().pipeThrough(ds);
-    const ab = await new Response(stream).arrayBuffer();
-    return new Uint8Array(ab);
-  }
-
   async function handleImportSongCode(code: string) {
-    const raw = (code || "").trim();
-    if (!raw) throw new Error("Pegá un código.");
-    const isGz = raw.startsWith("OC6GZ:");
-    const isPlain = raw.startsWith("OC6:");
-    if (!isGz && !isPlain) throw new Error("El código debe empezar con OC6: o OC6GZ:.");
-    const payload = raw.split(":")[1] || "";
-    if (!payload) throw new Error("El código parece incompleto.");
-
-    let bytes = base64UrlToBytes(payload);
-    if (isGz) bytes = await gunzipBytes(bytes);
-
-    let parsed: any;
-    try {
-      const json = new TextDecoder().decode(bytes);
-      parsed = JSON.parse(json);
-    } catch {
-      throw new Error("El código no contiene un JSON válido.");
-    }
-    if (!parsed || typeof parsed !== "object") throw new Error("Código inválido.");
-    if (parsed.version !== 6 || !parsed.songs || typeof parsed.songs !== "object") throw new Error("El código no es un compendio v6 válido.");
-    const songNames = Object.keys(parsed.songs);
-    if (songNames.length !== 1) throw new Error("El código debe contener exactamente 1 canción.");
-
-    // Reutiliza el mismo importador (con confirmación de overwrite)
+    const { parsed } = await parseShareCode(code);
     await handleImportRepertorioFile(
       new File([JSON.stringify(parsed)], "codigo.json", { type: "application/json" })
     );
@@ -446,6 +429,24 @@ export default function Page() {
   }
 
   function removeEvent(id: string) {
+    if (activeSongFormat === "v2") {
+      const ref = flatSongV2.idToRef[id];
+      if (!ref) return;
+      setDocV2((cur) => {
+        const next: SongDocV2 = {
+          ...cur,
+          timing: { ...cur.timing },
+          sectionsById: structuredClone(cur.sectionsById),
+          arrangement: cur.arrangement.map((x) => ({ ...x })),
+        };
+        const sec = next.sectionsById[ref.sectionId];
+        if (!sec) return cur;
+        sec.events = sec.events.filter((x) => x.id !== ref.itemId);
+        return next;
+      });
+      setSelectedPlayId((cur) => (cur === id ? null : cur));
+      return;
+    }
     const ref = flatSong.idToRef[id];
     if (!ref) return;
     setDoc((cur) => {
@@ -487,6 +488,105 @@ export default function Page() {
     });
   }
 
+  function applyLoadedSong(name: string, target: "play" | "legacy" | "beta") {
+    const t = getSongTranspose(name);
+    const fmt = getSongDocFormat(name);
+    setSelectedPlayId(null);
+    setTranspose(t);
+    setSelectedSaved(name);
+
+    if (target === "beta") {
+      let loadedV2: SongDocV2;
+      if (fmt === "v2") {
+        const loaded = loadSongDocV2(name);
+        if (!loaded) return false;
+        loadedV2 = loaded;
+        setActiveSongFormat("v2");
+      } else {
+        const loaded = loadSongDoc(name);
+        if (!loaded) return false;
+        loadedV2 = migrateV1ToV2(loaded, t);
+        setActiveSongFormat("v1");
+      }
+      setDocV2(loadedV2);
+      omittedReminderFpRef.current = null;
+      undoStackV2Ref.current = [];
+      redoStackV2Ref.current = [];
+      const fp2 = docFingerprintV2(loadedV2, t);
+      baselineFpV2Ref.current = fp2;
+      setBaselineFpV2(fp2);
+      return true;
+    }
+
+    if (target === "legacy") {
+      if (fmt === "v2") {
+        const loaded = loadSongDocV2(name);
+        if (!loaded) return false;
+        const v1 = songDocV2ToSongDocV1(loaded);
+        setDoc(v1);
+        setDocV2(loaded);
+        setActiveSongFormat("v2");
+        omittedReminderFpRef.current = null;
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        const fp = docFingerprint(v1, t);
+        baselineFpRef.current = fp;
+        setBaselineFp(fp);
+      } else {
+        const loaded = loadSongDoc(name);
+        if (!loaded) return false;
+        setDoc(loaded);
+        setActiveSongFormat("v1");
+        omittedReminderFpRef.current = null;
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        const fp = docFingerprint(loaded, t);
+        baselineFpRef.current = fp;
+        setBaselineFp(fp);
+      }
+      return true;
+    }
+
+    if (fmt === "v2") {
+      const loaded = loadSongDocV2(name);
+      if (!loaded) return false;
+      setDocV2(loaded);
+      setActiveSongFormat("v2");
+      const fp2 = docFingerprintV2(loaded, t);
+      baselineFpV2Ref.current = fp2;
+      setBaselineFpV2(fp2);
+    } else {
+      const loaded = loadSongDoc(name);
+      if (!loaded) return false;
+      setDoc(loaded);
+      setActiveSongFormat("v1");
+      const fp = docFingerprint(loaded, t);
+      baselineFpRef.current = fp;
+      setBaselineFp(fp);
+    }
+    return true;
+  }
+
+  function performSaveV2(name: string, category: string, subcategory: string) {
+    saveSongDocV2(name, docV2, transpose, category, subcategory);
+    clearDraftV2();
+    const fp = docFingerprintV2(docV2, transpose);
+    baselineFpV2Ref.current = fp;
+    justSavedRef.current = true;
+    setBaselineFpV2(fp);
+    setActiveSongFormat("v2");
+    const names = listSongNames();
+    setSavedNames(names);
+    setSelectedSaved(name);
+    setAllSongs(listSongsWithCategories());
+    setCategories(listCategories());
+    showToast("Canción guardada");
+    if (pendingModeSwitchRef.current) {
+      setMode(pendingModeSwitchRef.current);
+      pendingModeSwitchRef.current = null;
+    }
+  }
+
   function performSave(name: string, category: string, subcategory: string) {
     saveSongDoc(name, doc, transpose, category, subcategory);
     clearDraft();
@@ -506,6 +606,23 @@ export default function Page() {
     }
   }
 
+  const handleOpenSaveV2 = useCallback(() => {
+    if (flatSongV2NoteCount === 0) {
+      pendingModeSwitchRef.current = null;
+      return;
+    }
+    if (selectedSaved) {
+      void (async () => {
+        const ok = await askConfirm("¿Quieres sobrescribir esta canción?");
+        if (!ok) return;
+        const meta = allSongs.find((s) => s.name === selectedSaved);
+        performSaveV2(selectedSaved, meta?.category ?? "", meta?.subcategory ?? "");
+      })();
+      return;
+    }
+    setSaveOpen(true);
+  }, [flatSongV2NoteCount, selectedSaved, allSongs]);
+
   const handleOpenSave = useCallback(() => {
     if (flatSong.events.length === 0) {
       pendingModeSwitchRef.current = null;
@@ -523,6 +640,21 @@ export default function Page() {
     setSaveOpen(true);
   }, [flatSong.events.length, selectedSaved, allSongs]);
 
+  function handleDocChangeFromComposerV2(next: SongDocV2) {
+    if (skipUndoPushV2Ref.current) {
+      skipUndoPushV2Ref.current = false;
+      setDocV2(next);
+      return;
+    }
+    const current = docV2Ref.current;
+    undoStackV2Ref.current.push(structuredClone(current));
+    redoStackV2Ref.current = [];
+    while (undoStackV2Ref.current.length > MAX_UNDO_STACK_SIZE) {
+      undoStackV2Ref.current.shift();
+    }
+    setDocV2(next);
+  }
+
   function handleDocChangeFromComposer(next: SongDoc) {
     if (skipUndoPushRef.current) {
       skipUndoPushRef.current = false;
@@ -536,6 +668,30 @@ export default function Page() {
       undoStackRef.current.shift();
     }
     setDoc(next);
+  }
+
+  function handleUndoV2() {
+    if (undoStackV2Ref.current.length === 0) {
+      showToast("No hay pasos anteriores");
+      return;
+    }
+    const prev = undoStackV2Ref.current.pop()!;
+    redoStackV2Ref.current.push(structuredClone(docV2Ref.current));
+    skipUndoPushV2Ref.current = true;
+    setDocV2(prev);
+    showToast("Deshecho");
+  }
+
+  function handleRedoV2() {
+    if (redoStackV2Ref.current.length === 0) {
+      showToast("No hay pasos posteriores");
+      return;
+    }
+    const next = redoStackV2Ref.current.pop()!;
+    undoStackV2Ref.current.push(structuredClone(docV2Ref.current));
+    skipUndoPushV2Ref.current = true;
+    setDocV2(next);
+    showToast("Rehecho");
   }
 
   function handleUndo() {
@@ -567,41 +723,72 @@ export default function Page() {
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (el as any)?.isContentEditable) return;
-      if (mode !== "componer") return;
-      if (matchesKeyBinding(e, APP_KEY_BINDINGS.save)) {
-        e.preventDefault();
-        handleOpenSave();
+      if (mode === "componer") {
+        if (matchesKeyBinding(e, APP_KEY_BINDINGS.save)) {
+          e.preventDefault();
+          handleOpenSave();
+        }
+        if (matchesKeyBinding(e, APP_KEY_BINDINGS.undo)) {
+          e.preventDefault();
+          handleUndo();
+        }
+        if (matchesKeyBinding(e, APP_KEY_BINDINGS.redo)) {
+          e.preventDefault();
+          handleRedo();
+        }
       }
-      if (matchesKeyBinding(e, APP_KEY_BINDINGS.undo)) {
-        e.preventDefault();
-        handleUndo();
-      }
-      if (matchesKeyBinding(e, APP_KEY_BINDINGS.redo)) {
-        e.preventDefault();
-        handleRedo();
+      if (mode === "componer-beta") {
+        if (matchesKeyBinding(e, APP_KEY_BINDINGS.save)) {
+          e.preventDefault();
+          handleOpenSaveV2();
+        }
+        if (matchesKeyBinding(e, APP_KEY_BINDINGS.undo)) {
+          e.preventDefault();
+          handleUndoV2();
+        }
+        if (matchesKeyBinding(e, APP_KEY_BINDINGS.redo)) {
+          e.preventDefault();
+          handleRedoV2();
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, handleOpenSave]);
+  }, [mode, handleOpenSave, handleOpenSaveV2]);
 
-  function handleModeChange(newMode: "tocar" | "componer" | "repertorio") {
-    const hasContent = selectedSaved || flatSong.events.length > 0;
+  function handleModeChange(newMode: "tocar" | "componer" | "componer-beta" | "repertorio") {
     if (justSavedRef.current) {
       justSavedRef.current = false;
       setMode(newMode);
       return;
     }
-    const currentFp = docFingerprint(doc, transpose);
-    const reallyDirty = currentFp !== baselineFpRef.current;
-    if (mode === "componer" && reallyDirty && newMode !== "componer" && hasContent) {
-      if (omittedReminderFpRef.current === currentFp) {
-        setMode(newMode);
+    if (mode === "componer") {
+      const hasContent = selectedSaved || flatSong.events.length > 0;
+      const currentFp = docFingerprint(doc, transpose);
+      const reallyDirty = currentFp !== baselineFpRef.current;
+      if (reallyDirty && newMode !== "componer" && hasContent) {
+        if (omittedReminderFpRef.current === currentFp) {
+          setMode(newMode);
+          return;
+        }
+        setPendingModeSwitch(newMode);
+        setUnsavedReminderOpen(true);
         return;
       }
-      setPendingModeSwitch(newMode);
-      setUnsavedReminderOpen(true);
-      return;
+    }
+    if (mode === "componer-beta") {
+      const hasContent = selectedSaved || flatSongV2NoteCount > 0;
+      const currentFp = docFingerprintV2(docV2, transpose);
+      const reallyDirty = currentFp !== baselineFpV2Ref.current;
+      if (reallyDirty && newMode !== "componer-beta" && hasContent) {
+        if (omittedReminderFpRef.current === currentFp) {
+          setMode(newMode);
+          return;
+        }
+        setPendingModeSwitch(newMode);
+        setUnsavedReminderOpen(true);
+        return;
+      }
     }
     setMode(newMode);
   }
@@ -638,9 +825,14 @@ export default function Page() {
   requestCloseRef.current = async () => {
     const ok = await confirmLoseChanges("Cerrar");
     if (ok) {
-      // Guardar draft solo si había cambios sin guardar, para poder recuperar en la próxima sesión
-      const hasContent = !!selectedSaved || flatSong.events.length > 0;
-      if (hasContent && isDirty) saveDraft(doc, transpose, selectedSaved);
+      if (mode === "componer") {
+        const hasContent = !!selectedSaved || flatSong.events.length > 0;
+        if (hasContent && isDirty) saveDraft(doc, transpose, selectedSaved);
+      }
+      if (mode === "componer-beta") {
+        const hasContent = !!selectedSaved || flatSongV2NoteCount > 0;
+        if (hasContent && isDirtyV2) saveDraftV2(docV2, transpose, selectedSaved);
+      }
       (window as any).electron?.close();
     }
   };
@@ -775,12 +967,77 @@ export default function Page() {
             selectedSaved={selectedSaved}
             savedNamesCount={savedNames.length}
             onOpenPicker={() => setPickerOpen(true)}
-            sections={playSections}
+            sections={playBlocked ? [] : playSections}
             selectedId={selectedPlayId}
             onSelectEvent={handleSelectEvent}
             onRemoveEvent={removeEvent}
             onReorderEvent={reorderEvent}
             noteLabelMode={noteLabelMode}
+            playBlocked={playBlocked}
+          />
+        ) : mode === "componer-beta" ? (
+          <ComposeModeV2
+            stickyTopOffset={12 + titleBarHeight}
+            notes={NOTES}
+            noteLabelMode={noteLabelMode}
+            doc={docV2}
+            onDocChange={handleDocChangeFromComposerV2}
+            transpose={transpose}
+            onTransposeDec={decTranspose}
+            onTransposeInc={incTranspose}
+            onPreviewNote={(n) => play(n, 0.6)}
+            selectedSaved={selectedSaved}
+            savedNamesCount={savedNames.length}
+            songLength={flatSongV2NoteCount}
+            onNewSong={() => {
+              void (async () => {
+                const ok = await confirmLoseChanges("Nueva canción");
+                if (!ok) return;
+                const fresh = createEmptySongDocV2();
+                setDocV2(fresh);
+                omittedReminderFpRef.current = null;
+                undoStackV2Ref.current = [];
+                redoStackV2Ref.current = [];
+                setSelectedPlayId(null);
+                setSelectedSaved("");
+                setActiveSongFormat("v2");
+                setTranspose(0);
+                const fp = docFingerprintV2(fresh, 0);
+                baselineFpV2Ref.current = fp;
+                setBaselineFpV2(fp);
+              })();
+            }}
+            onOpenSave={handleOpenSaveV2}
+            onOpenPicker={() => setPickerOpen(true)}
+            onDeleteSaved={async () => {
+              if (!selectedSaved) return;
+              const ok = await askConfirm(`¿Eliminar "${selectedSaved}" de la memoria?`);
+              if (!ok) return;
+              removeSong(selectedSaved);
+              const names = listSongNames();
+              setSavedNames(names);
+              setSelectedSaved("");
+              setActiveSongFormat(null);
+              setAllSongs(listSongsWithCategories());
+              setCategories(listCategories());
+            }}
+            onOpenRename={() => setRenameOpen(true)}
+            onRenameSection={async (sectionId, currentName) => {
+              const next = await askPrompt("Renombrar sección", "Nombre", currentName);
+              if (!next) return;
+              setDocV2((cur) => {
+                const sec = cur.sectionsById[sectionId];
+                if (!sec) return cur;
+                const nextDoc: SongDocV2 = {
+                  ...cur,
+                  timing: { ...cur.timing },
+                  sectionsById: structuredClone(cur.sectionsById),
+                  arrangement: cur.arrangement.map((x) => ({ ...x })),
+                };
+                nextDoc.sectionsById[sectionId] = { ...sec, name: next.trim() || sec.name };
+                return nextDoc;
+              });
+            }}
           />
         ) : (
           <ComposeMode
@@ -843,21 +1100,17 @@ export default function Page() {
               const ok = await confirmLoseChanges(`Seleccionar "${name}"`);
               if (!ok) return false;
             }
-            const loaded = loadSongDoc(name);
-            if (loaded) {
-              setDoc(loaded);
-              omittedReminderFpRef.current = null;
-              undoStackRef.current = [];
-              redoStackRef.current = [];
-              setSelectedPlayId(null);
-              const t = getSongTranspose(name);
-              setTranspose(t);
-              setSelectedSaved(name);
-              const fp = docFingerprint(loaded, t);
-              baselineFpRef.current = fp;
-              setBaselineFp(fp);
+            if (mode === "componer-beta" && name !== selectedSaved) {
+              const ok = await confirmLoseChanges(`Seleccionar "${name}"`);
+              if (!ok) return false;
             }
-            return true;
+            if (mode === "componer-beta") {
+              return applyLoadedSong(name, "beta");
+            }
+            if (mode === "componer") {
+              return applyLoadedSong(name, "legacy");
+            }
+            return applyLoadedSong(name, "play");
           }}
         />
         <SaveSongModal
@@ -869,8 +1122,13 @@ export default function Page() {
           existingNames={savedNames}
           onCancel={() => setSaveOpen(false)}
           onSave={(name, category, subcategory) => {
-            if (flatSong.events.length === 0) return;
-            performSave(name, category, subcategory);
+            if (mode === "componer-beta") {
+              if (flatSongV2NoteCount === 0) return;
+              performSaveV2(name, category, subcategory);
+            } else {
+              if (flatSong.events.length === 0) return;
+              performSave(name, category, subcategory);
+            }
             setSaveOpen(false);
           }}
         />
@@ -942,7 +1200,11 @@ export default function Page() {
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button
                 onClick={() => {
-                  omittedReminderFpRef.current = docFingerprint(doc, transpose);
+                  if (mode === "componer-beta") {
+                    omittedReminderFpRef.current = docFingerprintV2(docV2, transpose);
+                  } else {
+                    omittedReminderFpRef.current = docFingerprint(doc, transpose);
+                  }
                   setUnsavedReminderOpen(false);
                   setMode(pendingModeSwitch);
                   setPendingModeSwitch(null);
@@ -956,7 +1218,8 @@ export default function Page() {
                   setUnsavedReminderOpen(false);
                   pendingModeSwitchRef.current = pendingModeSwitch;
                   setPendingModeSwitch(null);
-                  handleOpenSave();
+                  if (mode === "componer-beta") handleOpenSaveV2();
+                  else handleOpenSave();
                 }}
                 style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
               >
@@ -1034,6 +1297,73 @@ export default function Page() {
                   redoStackRef.current = [];
                   clearDraft();
                   setRecoveryDraft(null);
+                  showToast("Canción recuperada");
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Abrir
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {recoveryDraftV2 ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1163,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.35)",
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="recovery-v2-title"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 420px)",
+              background: "#1f1f1f",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 12,
+              padding: 16,
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <div id="recovery-v2-title" style={{ fontWeight: 900, fontSize: 16 }}>Recuperar canción (Componer β)</div>
+            <div style={{ opacity: 0.9, whiteSpace: "pre-line" }}>
+              Tenés un borrador del editor de línea de tiempo. ¿Abrir?
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => {
+                  clearDraftV2();
+                  setRecoveryDraftV2(null);
+                }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Descartar
+              </button>
+              <button
+                onClick={() => {
+                  const d = recoveryDraftV2;
+                  if (!d) return;
+                  setDocV2(d.doc);
+                  setTranspose(d.transpose);
+                  setSelectedSaved(d.savedName);
+                  setActiveSongFormat("v2");
+                  setMode("componer-beta");
+                  const fp = docFingerprintV2(d.doc, d.transpose);
+                  baselineFpV2Ref.current = fp;
+                  setBaselineFpV2(fp);
+                  undoStackV2Ref.current = [];
+                  redoStackV2Ref.current = [];
+                  clearDraftV2();
+                  setRecoveryDraftV2(null);
                   showToast("Canción recuperada");
                 }}
                 style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
