@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ModeSidebar from "@/components/ModeSidebar";
+import { IconLabel, ModalCloseButton } from "@/components/icons";
+import { FolderOpen, RotateCcw, Save, SkipForward, Trash2 } from "lucide-react";
 import ComposeMode from "@/components/modes/ComposeMode";
 import PlayMode from "@/components/modes/PlayMode";
 import CompendiumManager from "@/components/CompendiumManager";
@@ -865,9 +867,9 @@ export default function Page() {
                   setMode(pendingModeSwitch);
                   setPendingModeSwitch(null);
                 }}
-                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
               >
-                Omitir
+                <IconLabel icon={SkipForward}>Omitir</IconLabel>
               </button>
               <button
                 onClick={() => {
@@ -876,9 +878,9 @@ export default function Page() {
                   setPendingModeSwitch(null);
                   handleOpenSave();
                 }}
-                style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
               >
-                Guardar
+                <IconLabel icon={Save}>Guardar</IconLabel>
               </button>
             </div>
           </div>
@@ -933,9 +935,9 @@ export default function Page() {
                   clearDraftV2();
                   setRecoveryDraftV2(null);
                 }}
-                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
               >
-                Descartar
+                <IconLabel icon={Trash2}>Descartar</IconLabel>
               </button>
               <button
                 onClick={() => {
@@ -954,9 +956,9 @@ export default function Page() {
                   setRecoveryDraftV2(null);
                   showToast("Canción recuperada");
                 }}
-                style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
               >
-                Abrir
+                <IconLabel icon={FolderOpen}>Abrir</IconLabel>
               </button>
             </div>
           </div>
@@ -994,17 +996,12 @@ export default function Page() {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ fontWeight: 900, fontSize: 16 }}>La canción ya existe</div>
-              <button
+              <ModalCloseButton
                 onClick={() => {
                   setImportChoiceMsg(null);
                   importChoiceResolverRef.current?.("skip");
                 }}
-                style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
-                aria-label="Cerrar"
-                title="Cerrar"
-              >
-                ✕
-              </button>
+              />
             </div>
             <div style={{ opacity: 0.9, whiteSpace: "pre-line" }}>{importChoiceMsg}</div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
@@ -1013,27 +1010,27 @@ export default function Page() {
                   setImportChoiceMsg(null);
                   importChoiceResolverRef.current?.("skip");
                 }}
-                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
               >
-                Omitir
+                <IconLabel icon={SkipForward}>Omitir</IconLabel>
               </button>
               <button
                 onClick={() => {
                   setImportChoiceMsg(null);
                   importChoiceResolverRef.current?.("rename");
                 }}
-                style={{ padding: "8px 12px", borderRadius: 10, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
               >
-                Guardar con otro nombre
+                <IconLabel icon={Save}>Guardar con otro nombre</IconLabel>
               </button>
               <button
                 onClick={() => {
                   setImportChoiceMsg(null);
                   importChoiceResolverRef.current?.("overwrite");
                 }}
-                style={{ padding: "8px 12px", borderRadius: 10, background: "#7a1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+                style={{ padding: "8px 12px", borderRadius: 10, background: "#7a1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
               >
-                Sobrescribir
+                <IconLabel icon={RotateCcw}>Sobrescribir</IconLabel>
               </button>
             </div>
           </div>

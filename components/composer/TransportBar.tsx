@@ -1,7 +1,9 @@
 "use client";
 
 import React from "react";
-import ToggleSwitch from "@/components/ToggleSwitch";
+import { CornerDownLeft, Flag, Minus, Pause, Play, Square } from "lucide-react";
+import ToggleSwitch, { ToolbarSeparator } from "@/components/ToggleSwitch";
+import { iconProps } from "@/components/icons";
 import { eighthDivision, quarterDivision, sixteenthDivision, tickToBeatLabel, ticksToSeconds } from "@/lib/songTiming";
 import type { SongDocV2, Tick } from "@/lib/songDocV2";
 
@@ -39,6 +41,9 @@ export default function TransportBar({
   onAutoSpacesEnabledChange: (enabled: boolean) => void;
 }) {
   const btnStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
     padding: "8px 12px",
     borderRadius: 10,
     background: "#1f1f1f",
@@ -65,32 +70,29 @@ export default function TransportBar({
       }}
     >
       <button
-        onClick={onPlay}
-        disabled={playing}
+        onClick={playing ? onPause : onPlay}
         style={{
           ...btnStyle,
-          opacity: playing ? 0.5 : 1,
-          cursor: playing ? "not-allowed" : "pointer",
-          border: "1px solid rgba(120, 200, 140, 0.35)",
-          background: "rgba(40, 72, 52, 0.55)",
+          minWidth: 122,
+          justifyContent: "center",
+          border: playing
+            ? "1px solid rgba(255, 200, 80, 0.35)"
+            : "1px solid rgba(120, 200, 140, 0.35)",
+          background: playing ? "rgba(80, 60, 30, 0.55)" : "rgba(40, 72, 52, 0.55)",
         }}
-        title="Reproducir desde el playhead (Espacio)"
+        title={playing ? "Pausar (Espacio)" : "Reproducir desde el playhead (Espacio)"}
       >
-        ▶ Reproducir
-      </button>
-      <button
-        onClick={onPause}
-        disabled={!playing}
-        style={{
-          ...btnStyle,
-          opacity: !playing ? 0.5 : 1,
-          cursor: !playing ? "not-allowed" : "pointer",
-          border: "1px solid rgba(255, 200, 80, 0.35)",
-          background: paused ? "rgba(80, 60, 30, 0.55)" : "#1f1f1f",
-        }}
-        title="Pausar (Espacio)"
-      >
-        ⏸ Pausar
+        {playing ? (
+          <>
+            <Pause {...iconProps()} />
+            Pausar
+          </>
+        ) : (
+          <>
+            <Play {...iconProps()} />
+            Reproducir
+          </>
+        )}
       </button>
       <button
         onClick={onStop}
@@ -100,7 +102,8 @@ export default function TransportBar({
         }}
         title="Detener y volver al inicio (Home)"
       >
-        ⏹ Detener
+        <Square {...iconProps()} />
+        Detener
       </button>
       <span
         style={{
@@ -125,21 +128,7 @@ export default function TransportBar({
       >
         {beatLabel} · {secLabel}s
       </span>
-      <button onClick={onInsertLineBreak} style={btnStyle} title="Insertar salto de línea en el cursor">
-        ⏎ Salto de línea
-      </button>
-      <button onClick={onInsertSpace} style={btnStyle} title="Marcar un espacio en el cursor (como máximo uno por rango de silencio)">
-        — Espacio
-      </button>
-      <button onClick={onInsertSection} style={btnStyle} title="Insertar marcador de sección en el cursor (doble clic para renombrar)">
-        § Sección
-      </button>
-      <ToggleSwitch
-        checked={autoSpacesEnabled}
-        onChange={onAutoSpacesEnabledChange}
-        label="Espacios automáticos"
-        fontSize={13}
-      />
+      <ToolbarSeparator />
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
         Snap
         <select
@@ -159,6 +148,25 @@ export default function TransportBar({
           <option value="free">Libre</option>
         </select>
       </label>
+      <ToolbarSeparator />
+      <button onClick={onInsertSection} style={btnStyle} title="Insertar marcador de sección en el cursor (doble clic para renombrar)">
+        <Flag {...iconProps()} />
+        Sección
+      </button>
+      <button onClick={onInsertLineBreak} style={btnStyle} title="Insertar salto de línea en el cursor">
+        <CornerDownLeft {...iconProps()} />
+        Salto de línea
+      </button>
+      <button onClick={onInsertSpace} style={btnStyle} title="Marcar un espacio en el cursor (como máximo uno por rango de silencio)">
+        <Minus {...iconProps()} />
+        Espacio
+      </button>
+      <ToggleSwitch
+        checked={autoSpacesEnabled}
+        onChange={onAutoSpacesEnabledChange}
+        label="Espacios automáticos"
+        fontSize={13}
+      />
     </div>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { Check, X } from "lucide-react";
+import { IconLabel, ModalCloseButton } from "@/components/icons";
 
 export default function PromptModal({
   open,
@@ -59,14 +61,7 @@ export default function PromptModal({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontWeight: 900, fontSize: 16 }}>{title}</div>
-          <button
-            onClick={onCancel}
-            style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
-            aria-label="Cerrar"
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <ModalCloseButton onClick={onCancel} />
         </div>
         <label style={{ display: "grid", gap: 6, fontSize: 12 }}>
           {label}
@@ -90,15 +85,15 @@ export default function PromptModal({
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button
             onClick={onCancel}
-            style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
           >
-            Cancelar
+            <IconLabel icon={X}>Cancelar</IconLabel>
           </button>
           <button
             onClick={() => onSubmit(value)}
-            style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
           >
-            Aceptar
+            <IconLabel icon={Check}>Aceptar</IconLabel>
           </button>
         </div>
       </div>

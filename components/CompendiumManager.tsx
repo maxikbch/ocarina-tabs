@@ -1,6 +1,19 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  Braces,
+  Copy,
+  Download,
+  FileText,
+  Package,
+  Save,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
+import { IconLabel, SortIndicator } from "@/components/icons";
 import { downloadBundleForNames, makeSongShareCode } from "@/lib/songStore";
 
 export type CompendiumSongRef = { name: string; category: string; subcategory: string };
@@ -695,7 +708,9 @@ export default function CompendiumManager({
                   aria-label="Ordenar por Nombre"
                   title={sortField === "name" ? "Nombre (clic para alternar asc/desc)" : "Ordenar por Nombre"}
                 >
-                  Nombre {sortField === "name" ? (sortDir === "asc" ? "▲" : "▼") : "◆"}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    Nombre <SortIndicator active={sortField === "name"} dir={sortDir} />
+                  </span>
                 </button>
                 <button
                   onClick={() => {
@@ -729,7 +744,9 @@ export default function CompendiumManager({
                   aria-label="Ordenar por Subcategoría"
                   title={sortField === "subcategory" ? "Subcategoría (clic para alternar asc/desc)" : "Ordenar por Subcategoría"}
                 >
-                  Subcat {sortField === "subcategory" ? (sortDir === "asc" ? "▲" : "▼") : "◆"}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    Subcat <SortIndicator active={sortField === "subcategory"} dir={sortDir} />
+                  </span>
                 </button>
               </div>
             </div>
@@ -761,7 +778,7 @@ export default function CompendiumManager({
                   fontWeight: 800,
                 }}
               >
-                ← Volver
+                <IconLabel icon={ArrowLeft}>Volver</IconLabel>
               </button>
             ) : null}
           </div>
@@ -1297,7 +1314,7 @@ export default function CompendiumManager({
                   }}
                   title="Borrar categoría y todas sus canciones"
                 >
-                  Borrar
+                  <IconLabel icon={Trash2}>Borrar</IconLabel>
                 </button>
                 <button
                   onClick={() => void saveCategory()}
@@ -1312,7 +1329,7 @@ export default function CompendiumManager({
                     cursor: !isCategoryDirty ? "not-allowed" : "pointer",
                   }}
                 >
-                  Guardar
+                  <IconLabel icon={Save}>Guardar</IconLabel>
                 </button>
               </div>
             </div>
@@ -1351,7 +1368,7 @@ export default function CompendiumManager({
                     }}
                     title="Borrar subcategoría y todas sus canciones"
                   >
-                    Borrar
+                    <IconLabel icon={Trash2}>Borrar</IconLabel>
                   </button>
                   <button
                     onClick={() => void saveSubcategory()}
@@ -1366,7 +1383,7 @@ export default function CompendiumManager({
                       cursor: !isSubcategoryDirty ? "not-allowed" : "pointer",
                     }}
                   >
-                    Guardar
+                    <IconLabel icon={Save}>Guardar</IconLabel>
                   </button>
                 </div>
               </div>
@@ -1493,7 +1510,7 @@ export default function CompendiumManager({
                   }}
                   title="Borrar canción"
                 >
-                  Borrar
+                  <IconLabel icon={Trash2}>Borrar</IconLabel>
                 </button>
                 <button
                   onClick={() => void saveSong()}
@@ -1508,7 +1525,7 @@ export default function CompendiumManager({
                     cursor: !isSongDirty || !draftSongName.trim() ? "not-allowed" : "pointer",
                   }}
                 >
-                  Guardar
+                  <IconLabel icon={Save}>Guardar</IconLabel>
                 </button>
               </div>
             </div>
@@ -1534,7 +1551,10 @@ export default function CompendiumManager({
               overflowX: "hidden",
             }}
           >
-            <div style={{ fontWeight: 950, fontSize: 14, opacity: 0.95 }}>Exportar</div>
+            <div style={{ fontWeight: 950, fontSize: 14, opacity: 0.95, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Download size={14} strokeWidth={2} />
+              Exportar
+            </div>
 
             <div
               style={{
@@ -1616,7 +1636,7 @@ export default function CompendiumManager({
                               : "Seleccioná una categoría/subcategoría/canción para exportar"
                       }
                     >
-                      Compendio
+                      <IconLabel icon={Package}>Compendio</IconLabel>
                     </button>
 
                     <button
@@ -1636,7 +1656,7 @@ export default function CompendiumManager({
                       aria-label="Copiar código comprimido"
                       title={canSong ? "Copiar código para compartir esta canción" : "Disponible solo para canciones"}
                     >
-                      Codigo
+                      <IconLabel icon={Braces}>Codigo</IconLabel>
                     </button>
 
                     <button
@@ -1646,7 +1666,7 @@ export default function CompendiumManager({
                       aria-label="Exportar PDF (bloqueado)"
                       title="Exportar PDF (próximamente)"
                     >
-                      PDF
+                      <IconLabel icon={FileText}>PDF</IconLabel>
                     </button>
                   </>
                 );
@@ -1683,7 +1703,10 @@ export default function CompendiumManager({
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ fontWeight: 950, fontSize: 14 }}>Descargar compendio</div>
+                  <div style={{ fontWeight: 950, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Download size={14} strokeWidth={2} />
+                    Descargar compendio
+                  </div>
                   <div style={{ marginLeft: "auto", opacity: 0.7, fontSize: 12, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {exportModalContextLabel}
                   </div>
@@ -1726,7 +1749,7 @@ export default function CompendiumManager({
                       cursor: "pointer",
                     }}
                   >
-                    Cancelar
+                    <IconLabel icon={X}>Cancelar</IconLabel>
                   </button>
                   <button
                     onClick={() => {
@@ -1749,7 +1772,7 @@ export default function CompendiumManager({
                       cursor: !exportModalNames.length ? "not-allowed" : "pointer",
                     }}
                   >
-                    Descargar
+                    <IconLabel icon={Download}>Descargar</IconLabel>
                   </button>
                 </div>
               </div>
@@ -1826,7 +1849,7 @@ export default function CompendiumManager({
                       cursor: "pointer",
                     }}
                   >
-                    Cerrar
+                    <IconLabel icon={X}>Cerrar</IconLabel>
                   </button>
                   <button
                     onClick={async () => {
@@ -1842,7 +1865,7 @@ export default function CompendiumManager({
                       cursor: "pointer",
                     }}
                   >
-                    Copiar
+                    <IconLabel icon={Copy}>Copiar</IconLabel>
                   </button>
                 </div>
               </div>
@@ -1877,7 +1900,10 @@ export default function CompendiumManager({
                   gap: 12,
                 }}
               >
-                <div style={{ fontWeight: 950, fontSize: 14 }}>Importar compendio</div>
+                <div style={{ fontWeight: 950, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Upload size={14} strokeWidth={2} />
+                  Importar compendio
+                </div>
 
                 <div
                   onDragEnter={(e) => {
@@ -1960,7 +1986,7 @@ export default function CompendiumManager({
                       opacity: importingNow ? 0.6 : 1,
                     }}
                   >
-                    Cancelar
+                    <IconLabel icon={X}>Cancelar</IconLabel>
                   </button>
                   <button
                     onClick={async () => {
@@ -1984,7 +2010,7 @@ export default function CompendiumManager({
                       opacity: !importFile || importingNow ? 0.5 : 1,
                     }}
                   >
-                    Importar
+                    <IconLabel icon={Upload}>Importar</IconLabel>
                   </button>
                 </div>
               </div>
@@ -2019,7 +2045,10 @@ export default function CompendiumManager({
                   gap: 12,
                 }}
               >
-                <div style={{ fontWeight: 950, fontSize: 14 }}>Importar cancion</div>
+                <div style={{ fontWeight: 950, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Braces size={14} strokeWidth={2} />
+                  Importar cancion
+                </div>
                 <div style={{ fontSize: 12, opacity: 0.75 }}>
                   Pegá el código generado en <span style={{ fontWeight: 900 }}>Codigo</span>. Se validará antes de importar.
                 </div>
@@ -2068,7 +2097,7 @@ export default function CompendiumManager({
                       opacity: importSongBusy ? 0.6 : 1,
                     }}
                   >
-                    Cancelar
+                    <IconLabel icon={X}>Cancelar</IconLabel>
                   </button>
                   <button
                     onClick={async () => {
@@ -2117,7 +2146,7 @@ export default function CompendiumManager({
                       opacity: importSongBusy ? 0.5 : 1,
                     }}
                   >
-                    Importar
+                    <IconLabel icon={Upload}>Importar</IconLabel>
                   </button>
                 </div>
               </div>
@@ -2152,8 +2181,10 @@ export default function CompendiumManager({
                   gap: 12,
                 }}
               >
-                <div style={{ fontWeight: 950, fontSize: 14 }}>
-                  Borrar {deleteGroupKind === "category" ? "categoría" : "subcategoría"}
+                <div style={{ fontWeight: 950, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <IconLabel icon={Trash2}>
+                    Borrar {deleteGroupKind === "category" ? "categoría" : "subcategoría"}
+                  </IconLabel>
                 </div>
                 <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "pre-line" }}>
                   {`Esto va a borrar TODAS las canciones de esta ${deleteGroupKind === "category" ? "categoría" : "subcategoría"} y no se puede deshacer.\n\nPara confirmar, escribí exactamente:\n${deleteGroupName}`}
@@ -2188,7 +2219,7 @@ export default function CompendiumManager({
                       opacity: deleteGroupBusy ? 0.6 : 1,
                     }}
                   >
-                    Cancelar
+                    <IconLabel icon={X}>Cancelar</IconLabel>
                   </button>
                   <button
                     onClick={async () => {
@@ -2223,7 +2254,7 @@ export default function CompendiumManager({
                       opacity: deleteGroupBusy ? 0.6 : 1,
                     }}
                   >
-                    Borrar
+                    <IconLabel icon={Trash2}>Borrar</IconLabel>
                   </button>
                 </div>
               </div>
@@ -2257,7 +2288,7 @@ export default function CompendiumManager({
             }}
             title="Exportar compendio como JSON"
           >
-            Exportar compendio
+            <IconLabel icon={Download}>Exportar compendio</IconLabel>
           </button>
           <button
             onClick={() => {
@@ -2277,7 +2308,7 @@ export default function CompendiumManager({
             }}
             title="Importar compendio desde JSON"
           >
-            Importar compendio
+            <IconLabel icon={Upload}>Importar compendio</IconLabel>
           </button>
           <button
             onClick={() => {
@@ -2295,7 +2326,7 @@ export default function CompendiumManager({
             }}
             title="Importar una canción pegando el código"
           >
-            Importar cancion
+            <IconLabel icon={Braces}>Importar cancion</IconLabel>
           </button>
         </div>
 
@@ -2312,7 +2343,7 @@ export default function CompendiumManager({
           }}
           title="Borrar todas las canciones guardadas"
         >
-          Borrar compendio
+          <IconLabel icon={Trash2}>Borrar compendio</IconLabel>
         </button>
       </div>
     </div>

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { Save, X } from "lucide-react";
+import { IconLabel, ModalCloseButton } from "@/components/icons";
 import type { SectionColorIndex } from "@/lib/songDocV2";
 import { SECTION_MARKER_COLORS } from "@/lib/sectionMarkers";
 
@@ -70,22 +72,7 @@ export default function SectionEditModal({
           <div id="section-edit-title" style={{ fontWeight: 900, fontSize: 16 }}>
             Editar sección
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            style={{
-              marginLeft: "auto",
-              background: "none",
-              color: "#eaeaea",
-              border: "none",
-              fontSize: 18,
-              cursor: "pointer",
-            }}
-            aria-label="Cerrar"
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <ModalCloseButton onClick={onCancel} />
         </div>
 
         <label style={{ display: "grid", gap: 6, fontSize: 12 }}>
@@ -150,9 +137,11 @@ export default function SectionEditModal({
               color: "#eaeaea",
               border: "1px solid rgba(255,255,255,0.15)",
               cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
             }}
           >
-            Cancelar
+            <IconLabel icon={X}>Cancelar</IconLabel>
           </button>
           <button
             type="button"
@@ -165,9 +154,11 @@ export default function SectionEditModal({
               color: "#eaeaea",
               border: "1px solid rgba(255,255,255,0.15)",
               cursor: name.trim() ? "pointer" : "not-allowed",
+              display: "inline-flex",
+              alignItems: "center",
             }}
           >
-            Guardar
+            <IconLabel icon={Save}>Guardar</IconLabel>
           </button>
         </div>
       </div>

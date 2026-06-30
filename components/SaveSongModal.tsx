@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { Save, X } from "lucide-react";
+import { IconLabel, ModalCloseButton } from "@/components/icons";
 
 export default function SaveSongModal({
   open,
@@ -83,15 +85,11 @@ export default function SaveSongModal({
         }}
       >
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>Guardar canción</div>
-          <button
-            onClick={onCancel}
-            style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
-            aria-label="Cerrar"
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <div style={{ fontWeight: 900, fontSize: 16, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Save size={18} strokeWidth={2} />
+            Guardar canción
+          </div>
+          <ModalCloseButton onClick={onCancel} />
         </div>
         <label style={{ display: "grid", gap: 6, fontSize: 12 }}>
           Nombre
@@ -193,18 +191,18 @@ export default function SaveSongModal({
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
           <button
             onClick={onCancel}
-            style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
           >
-            Cancelar
+            <IconLabel icon={X}>Cancelar</IconLabel>
           </button>
           <button
             onClick={() => {
               const trimmed = (name || "").trim();
               if (trimmed) onSave(trimmed, getFinalCategory(), (subcategory || "").trim());
             }}
-            style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
           >
-            Guardar
+            <IconLabel icon={Save}>Guardar</IconLabel>
           </button>
         </div>
       </div>

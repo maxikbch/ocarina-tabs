@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { ListMusic } from "lucide-react";
+import { ModalCloseButton, SortIndicator } from "@/components/icons";
 
 export type SongRef = { name: string; category: string; subcategory: string };
 
@@ -205,15 +207,11 @@ export default function SongPickerSidebar({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", padding: 12, borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <div style={{ fontWeight: 900 }}>Seleccionar canción</div>
-          <button
-            onClick={onClose}
-            style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
-            aria-label="Cerrar selector"
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <div style={{ fontWeight: 900, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <ListMusic size={16} strokeWidth={2} />
+            Seleccionar canción
+          </div>
+          <ModalCloseButton onClick={onClose} label="Cerrar selector" />
         </div>
         <div
           style={{
@@ -313,7 +311,9 @@ export default function SongPickerSidebar({
               aria-label="Ordenar por Nombre"
               title={sortField === "name" ? "Nombre (clic para alternar asc/desc)" : "Ordenar por Nombre"}
             >
-              Nombre {sortField === "name" ? (sortDir === "asc" ? "▲" : "▼") : "◆"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                Nombre <SortIndicator active={sortField === "name"} dir={sortDir} />
+              </span>
             </button>
             <button
               onClick={() => {
@@ -347,7 +347,9 @@ export default function SongPickerSidebar({
               aria-label="Ordenar por Subcategoría"
               title={sortField === "subcategory" ? "Subcategoría (clic para alternar asc/desc)" : "Ordenar por Subcategoría"}
             >
-              Subcat {sortField === "subcategory" ? (sortDir === "asc" ? "▲" : "▼") : "◆"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                Subcat <SortIndicator active={sortField === "subcategory"} dir={sortDir} />
+              </span>
             </button>
           </div>
         </div>

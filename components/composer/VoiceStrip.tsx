@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import { GitMerge } from "lucide-react";
+import { IconLabel } from "@/components/icons";
 import type { SongDocV2, VoiceDef } from "@/lib/songDocV2";
 import { patchSongDocV2 } from "@/lib/songDocV2";
 import { hasVoiceLayers } from "@/lib/songVoices";
@@ -72,9 +74,11 @@ export default function VoiceStrip({
             cursor: "pointer",
             fontSize: 11,
             fontWeight: 700,
+            display: "inline-flex",
+            alignItems: "center",
           }}
         >
-          Consolidar voces
+          <IconLabel icon={GitMerge} size={12}>Consolidar voces</IconLabel>
         </button>
       </div>
 

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { Minus, Square, X } from "lucide-react";
+import { iconProps } from "@/components/icons";
 
 const titleBarHeight = 36;
 
@@ -81,7 +83,7 @@ export default function TitleBar({
             e.currentTarget.style.background = "transparent";
           }}
         >
-          —
+          <Minus {...iconProps(14)} />
         </button>
         <button
           type="button"
@@ -95,7 +97,7 @@ export default function TitleBar({
             e.currentTarget.style.background = "transparent";
           }}
         >
-          □
+          <Square {...iconProps(12)} />
         </button>
         <button
           type="button"
@@ -114,7 +116,7 @@ export default function TitleBar({
             e.currentTarget.style.color = "rgba(255,255,255,0.9)";
           }}
         >
-          ✕
+          <X {...iconProps(14)} />
         </button>
       </div>
     </div>

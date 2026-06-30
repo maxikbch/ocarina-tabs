@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { Check, X } from "lucide-react";
+import { IconLabel, ModalCloseButton } from "@/components/icons";
 
 export default function ConfirmModal({
   open,
@@ -47,28 +49,21 @@ export default function ConfirmModal({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontWeight: 900, fontSize: 16 }}>{title}</div>
-          <button
-            onClick={onCancel}
-            style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
-            aria-label="Cerrar"
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <ModalCloseButton onClick={onCancel} />
         </div>
         <div style={{ opacity: 0.9, whiteSpace: "pre-line" }}>{message}</div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button
             onClick={onCancel}
-            style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
           >
-            Cancelar
+            <IconLabel icon={X}>Cancelar</IconLabel>
           </button>
           <button
             onClick={onConfirm}
-            style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ padding: "8px 12px", borderRadius: 10, background: "#2b7a1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
           >
-            Aceptar
+            <IconLabel icon={Check}>Aceptar</IconLabel>
           </button>
         </div>
       </div>

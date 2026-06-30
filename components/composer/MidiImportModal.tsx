@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { FileMusic, Flag, RefreshCw, X } from "lucide-react";
+import { IconLabel, ModalCloseButton } from "@/components/icons";
 
 export default function MidiImportModal({
   open,
@@ -49,14 +51,11 @@ export default function MidiImportModal({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>Importar MIDI</div>
-          <button
-            onClick={onCancel}
-            style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
-            aria-label="Cerrar"
-          >
-            ✕
-          </button>
+          <div style={{ fontWeight: 900, fontSize: 16, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <FileMusic size={18} strokeWidth={2} />
+            Importar MIDI
+          </div>
+          <ModalCloseButton onClick={onCancel} />
         </div>
 
         <div style={{ fontSize: 13, opacity: 0.9 }}>
@@ -101,9 +100,11 @@ export default function MidiImportModal({
               cursor: "pointer",
               fontWeight: 700,
               textAlign: "left",
+              display: "flex",
+              alignItems: "center",
             }}
           >
-            Reemplazar canción actual
+            <IconLabel icon={RefreshCw}>Reemplazar canción actual</IconLabel>
           </button>
           <button
             onClick={onNewSection}
@@ -116,9 +117,11 @@ export default function MidiImportModal({
               cursor: "pointer",
               fontWeight: 700,
               textAlign: "left",
+              display: "flex",
+              alignItems: "center",
             }}
           >
-            Agregar como sección nueva
+            <IconLabel icon={Flag}>Agregar como sección nueva</IconLabel>
           </button>
         </div>
 
@@ -132,9 +135,11 @@ export default function MidiImportModal({
               background: "#1f1f1f",
               color: "#eaeaea",
               cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
             }}
           >
-            Cancelar
+            <IconLabel icon={X}>Cancelar</IconLabel>
           </button>
         </div>
       </div>

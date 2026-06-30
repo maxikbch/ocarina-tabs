@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ListMusic } from "lucide-react";
 import SongTimeline from "@/components/SongTimeline";
+import { iconProps } from "@/components/icons";
 import { PLAY_MODE_KEY_BINDINGS, matchesKeyBinding } from "@/lib/config";
 import type { NoteLabelMode } from "@/lib/noteLabels";
 import type { NoteEvent } from "@/lib/types";
@@ -177,9 +179,12 @@ export default function PlayMode({
               opacity: savedNamesCount === 0 ? 0.55 : 1,
               fontSize: 16,
               lineHeight: 1,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
-            ☰
+            <ListMusic {...iconProps(18)} />
           </button>
         </div>
       </div>

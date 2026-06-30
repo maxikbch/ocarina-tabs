@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { Loader2 } from "lucide-react";
+import { iconProps } from "@/components/icons";
 
 export default function LoadingModal({
   open,
@@ -42,17 +44,10 @@ export default function LoadingModal({
       >
         <div style={{ fontWeight: 900, fontSize: 16 }}>{title}</div>
         {message ? <div style={{ opacity: 0.9 }}>{message}</div> : null}
-        <div
+        <Loader2
+          {...iconProps(28)}
           aria-label="Cargando"
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: "50%",
-            border: "3px solid rgba(255,255,255,0.2)",
-            borderTopColor: "#eaeaea",
-            margin: "0 auto",
-            animation: "spin 0.9s linear infinite",
-          }}
+          style={{ margin: "0 auto", animation: "spin 0.9s linear infinite" }}
         />
         <style>
           {`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}

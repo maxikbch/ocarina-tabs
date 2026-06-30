@@ -15,7 +15,11 @@ import VoiceStrip from "@/components/composer/VoiceStrip";
 import TransportBar, { getSnapTicks, type SnapDivision } from "@/components/composer/TransportBar";
 import TimelineBar from "@/components/composer/TimelineBar";
 import ConfirmModal from "@/components/ConfirmModal";
+import NumericInput from "@/components/NumericInput";
+import { Focus } from "lucide-react";
+import { IconLabel, iconProps } from "@/components/icons";
 import ToggleSwitch, { ToolbarSeparator } from "@/components/ToggleSwitch";
+import { Minus, Plus } from "lucide-react";
 import {
   buildTimelineClipboardPayload,
   computeDuplicatePasteTick,
@@ -420,37 +424,40 @@ export default function ComposerWorkspace({
             cursor: "pointer",
             fontSize: 12,
             fontWeight: 700,
+            display: "inline-flex",
+            alignItems: "center",
           }}
         >
-          Centrar notas
+          <IconLabel icon={Focus} size={12}>Centrar notas</IconLabel>
         </button>
         <ToolbarSeparator />
         <span style={{ fontSize: 12, opacity: 0.75 }}>Zoom H</span>
         <button
           onClick={() => setPxPerTick((p) => Math.max(MIN_PX_PER_TICK, p - 0.02))}
-          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "#1f1f1f", color: "#eaeaea", cursor: "pointer" }}
+          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "#1f1f1f", color: "#eaeaea", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
         >
-          −
+          <Minus {...iconProps(14)} />
         </button>
         <button
           onClick={() => setPxPerTick((p) => Math.min(MAX_PX_PER_TICK, p + 0.02))}
-          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "#1f1f1f", color: "#eaeaea", cursor: "pointer" }}
+          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "#1f1f1f", color: "#eaeaea", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
         >
-          +
+          <Plus {...iconProps(14)} />
         </button>
         <span style={{ fontSize: 12, opacity: 0.75, marginLeft: 4 }}>Zoom V</span>
         <button
           onClick={() => setRowHeight((h) => Math.max(MIN_ROW_HEIGHT, h - 2))}
-          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "#1f1f1f", color: "#eaeaea", cursor: "pointer" }}
+          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "#1f1f1f", color: "#eaeaea", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
         >
-          −
+          <Minus {...iconProps(14)} />
         </button>
         <button
           onClick={() => setRowHeight((h) => Math.min(MAX_ROW_HEIGHT, h + 2))}
-          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "#1f1f1f", color: "#eaeaea", cursor: "pointer" }}
+          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "#1f1f1f", color: "#eaeaea", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
         >
-          +
+          <Plus {...iconProps(14)} />
         </button>
+        <ToolbarSeparator />
         <ToggleSwitch
           checked={transposeEnabled}
           onChange={setTransposeEnabled}
@@ -468,9 +475,12 @@ export default function ComposerWorkspace({
               color: "#eaeaea",
               cursor: transposeEnabled ? "pointer" : "not-allowed",
               opacity: transposeEnabled ? 1 : 0.45,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
-            −
+            <Minus {...iconProps(14)} />
           </button>
           <span style={{ fontSize: 12, minWidth: 40, textAlign: "center", fontWeight: 700 }}>
             T {displayTranspose > 0 ? `+${displayTranspose}` : displayTranspose}
@@ -486,32 +496,29 @@ export default function ComposerWorkspace({
               color: "#eaeaea",
               cursor: transposeEnabled ? "pointer" : "not-allowed",
               opacity: transposeEnabled ? 1 : 0.45,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
-            +
+            <Plus {...iconProps(14)} />
           </button>
         </div>
         <ToolbarSeparator />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
           BPM
-          <input
-            type="number"
+          <NumericInput
+            value={doc.timing.tempo}
             min={40}
             max={240}
-            value={doc.timing.tempo}
-            onChange={(e) =>
+            step={1}
+            ariaLabel="Tempo en BPM"
+            inputWidth={44}
+            onChange={(tempo) =>
               updateDoc((d) => {
-                d.timing.tempo = Math.max(40, Math.min(240, Number(e.target.value) || 120));
+                d.timing.tempo = tempo;
               })
             }
-            style={{
-              width: 56,
-              padding: "4px 8px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.2)",
-              background: "#1a1a1a",
-              color: "#eaeaea",
-            }}
           />
         </label>
         {selectionHint ? (

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { ListMusic, Pencil, Play } from "lucide-react";
+import { ICON_SIZE_LG, iconProps } from "@/components/icons";
 import type { NoteLabelMode } from "@/lib/noteLabels";
 
 export type AppMode = "tocar" | "componer" | "repertorio";
@@ -156,9 +158,9 @@ export default function ModeSidebar({
         >
           Modo
         </div>
-        <SidebarIconButton active={mode === "tocar"} icon={"▶"} label="Modo: tocar" tooltip="Tocar" onClick={() => onModeChange("tocar")} />
-        <SidebarIconButton active={mode === "componer"} icon={"✎"} label="Modo: componer" tooltip="Componer" onClick={() => onModeChange("componer")} />
-        <SidebarIconButton active={mode === "repertorio"} icon={"☰"} label="Modo: compendio" tooltip="Compendio" onClick={() => onModeChange("repertorio")} />
+        <SidebarIconButton active={mode === "tocar"} icon={<Play {...iconProps(ICON_SIZE_LG)} />} label="Modo: tocar" tooltip="Tocar" onClick={() => onModeChange("tocar")} />
+        <SidebarIconButton active={mode === "componer"} icon={<Pencil {...iconProps(ICON_SIZE_LG)} />} label="Modo: componer" tooltip="Componer" onClick={() => onModeChange("componer")} />
+        <SidebarIconButton active={mode === "repertorio"} icon={<ListMusic {...iconProps(ICON_SIZE_LG)} />} label="Modo: compendio" tooltip="Compendio" onClick={() => onModeChange("repertorio")} />
       </div>
 
       <div style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.12)", display: "grid", gap: 10, justifyItems: "center" }}>

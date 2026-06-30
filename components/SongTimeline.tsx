@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useLayoutEffect, useRef, useState } from "react";
+import { CornerDownLeft, Minus, X } from "lucide-react";
+import { DeleteIcon, iconProps } from "@/components/icons";
 import type { NoteEvent } from "@/lib/types";
 import { formatNoteLabel, NoteLabelMode } from "@/lib/noteLabels";
 import OcarinaSvg from "@/components/OcarinaSvg";
@@ -182,7 +184,7 @@ export default function SongTimeline({
                   color: "rgba(255,255,255,0.9)",
                 }}
               >
-                ✕
+                <DeleteIcon />
               </button>
             ) : null}
           </div>
@@ -222,7 +224,7 @@ export default function SongTimeline({
                   cursor: "pointer",
                 }}
               >
-                ✕
+                <DeleteIcon />
               </button>
             ) : null}
           </>
@@ -258,18 +260,12 @@ export default function SongTimeline({
                   pointerEvents: "none",
                 }}
               >
-                <div
-                  style={{
-                    color: "#ff3b30",
-                    fontSize: 84,
-                    fontWeight: 900,
-                    lineHeight: 1,
-                    textShadow: "0 0 4px rgba(0,0,0,0.35)",
-                    transform: "translateY(-2px)",
-                  }}
-                >
-                  ✕
-                </div>
+                <X
+                  size={84}
+                  strokeWidth={2.5}
+                  color="#ff3b30"
+                  style={{ filter: "drop-shadow(0 0 4px rgba(0,0,0,0.35))", transform: "translateY(-2px)" }}
+                />
               </div>
             )}
           </div>
@@ -280,15 +276,14 @@ export default function SongTimeline({
               <>
                 <div
                   style={{
-                    fontWeight: 900,
-                    fontSize: specialGlyphFont,
-                    textAlign: "center",
-                    lineHeight: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                     color: "rgba(255,255,255,0.9)",
                     userSelect: "none",
                   }}
                 >
-                  —
+                  <Minus {...iconProps(specialGlyphFont)} strokeWidth={2.5} />
                 </div>
                 {editable ? (
                   <button
@@ -311,7 +306,7 @@ export default function SongTimeline({
                       cursor: "pointer",
                     }}
                   >
-                    ✕
+                    <DeleteIcon />
                   </button>
                 ) : null}
               </>
@@ -364,7 +359,7 @@ export default function SongTimeline({
                         color: "rgba(255,255,255,0.8)",
                       }}
                     >
-                      ✕
+                      <DeleteIcon />
                     </button>
                   ) : null}
                 </div>
@@ -378,15 +373,14 @@ export default function SongTimeline({
               <>
                 <div
                   style={{
-                    fontWeight: 900,
-                    fontSize: specialGlyphFont,
-                    textAlign: "center",
-                    lineHeight: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                     color: "rgba(255,255,255,0.9)",
                     userSelect: "none",
                   }}
                 >
-                  ↵
+                  <CornerDownLeft {...iconProps(specialGlyphFont)} strokeWidth={2.5} />
                 </div>
                 {editable ? (
                   <button
@@ -409,7 +403,7 @@ export default function SongTimeline({
                       cursor: "pointer",
                     }}
                   >
-                    ✕
+                    <DeleteIcon />
                   </button>
                 ) : null}
               </>
@@ -462,7 +456,7 @@ export default function SongTimeline({
                         color: "rgba(255,255,255,0.8)",
                       }}
                     >
-                      ✕
+                      <DeleteIcon />
                     </button>
                   ) : null}
                 </div>

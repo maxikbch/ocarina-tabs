@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useRef, useState } from "react";
+import { FileMusic, FilePlus, ListMusic, Pencil, Save, Trash2 } from "lucide-react";
 import ComposerWorkspace from "@/components/composer/ComposerWorkspace";
+import { IconLabel, iconProps } from "@/components/icons";
 import MidiImportModal from "@/components/composer/MidiImportModal";
 import ConfirmModal from "@/components/ConfirmModal";
 import type { NoteLabelMode } from "@/lib/noteLabels";
@@ -133,9 +135,12 @@ export default function ComposeMode({
                 color: "#eaeaea",
                 cursor: "pointer",
                 fontSize: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              ✎
+              <Pencil {...iconProps(14)} />
             </button>
           </>
         ) : null}
@@ -144,15 +149,15 @@ export default function ComposeMode({
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <button
             onClick={onNewSong}
-            style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
           >
-            Nueva canción
+            <IconLabel icon={FilePlus}>Nueva canción</IconLabel>
           </button>
           <button
             onClick={openFilePicker}
-            style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(120, 180, 255, 0.35)" }}
+            style={{ padding: "10px 12px", borderRadius: 12, background: "#1f1f1f", color: "#eaeaea", border: "1px solid rgba(120, 180, 255, 0.35)", display: "inline-flex", alignItems: "center" }}
           >
-            Importar MIDI
+            <IconLabel icon={FileMusic}>Importar MIDI</IconLabel>
           </button>
           <button
             onClick={onOpenSave}
@@ -165,9 +170,11 @@ export default function ComposeMode({
               border: "1px solid rgba(255,255,255,0.15)",
               opacity: songLength === 0 ? 0.5 : 1,
               cursor: songLength === 0 ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
             }}
           >
-            Guardar canción
+            <IconLabel icon={Save}>Guardar canción</IconLabel>
           </button>
           <button
             onClick={onDeleteSaved}
@@ -180,9 +187,11 @@ export default function ComposeMode({
               border: "1px solid rgba(255,255,255,0.15)",
               opacity: !selectedSaved ? 0.5 : 1,
               cursor: !selectedSaved ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
             }}
           >
-            Borrar canción
+            <IconLabel icon={Trash2}>Borrar canción</IconLabel>
           </button>
         </div>
         <div style={{ marginLeft: "auto" }}>
@@ -197,9 +206,11 @@ export default function ComposeMode({
               border: "1px solid rgba(255,255,255,0.15)",
               opacity: savedNamesCount === 0 ? 0.5 : 1,
               cursor: savedNamesCount === 0 ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
             }}
           >
-            Seleccionar canción
+            <IconLabel icon={ListMusic}>Seleccionar canción</IconLabel>
           </button>
         </div>
       </div>

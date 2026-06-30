@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { X } from "lucide-react";
 import type { Fingering, NoteId } from "@/lib/types";
 import OcarinaSvg from "./OcarinaSvg";
 import { formatNoteLabel, NoteLabelMode } from "@/lib/noteLabels";
@@ -53,18 +54,12 @@ export default function StepCard({
               pointerEvents: "none",
             }}
           >
-            <div
-              style={{
-                color: "#ff3b30",
-                fontSize: 420,
-                fontWeight: 900,
-                lineHeight: 1,
-                textShadow: "0 0 14px rgba(0,0,0,0.25)",
-                transform: "translateY(-10px)",
-              }}
-            >
-              ✕
-            </div>
+            <X
+              size={280}
+              strokeWidth={2}
+              color="#ff3b30"
+              style={{ filter: "drop-shadow(0 0 14px rgba(0,0,0,0.25))", transform: "translateY(-10px)" }}
+            />
           </div>
         )}
       </div>

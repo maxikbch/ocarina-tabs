@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { X } from "lucide-react";
+import { IconLabel, ModalCloseButton } from "@/components/icons";
 
 export default function ErrorModal({
   open,
@@ -45,22 +47,15 @@ export default function ErrorModal({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontWeight: 900, fontSize: 16 }}>{title}</div>
-          <button
-            onClick={onClose}
-            style={{ marginLeft: "auto", background: "none", color: "#eaeaea", border: "none", fontSize: 18, cursor: "pointer" }}
-            aria-label="Cerrar"
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
         <div style={{ opacity: 0.9 }}>{message}</div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button
             onClick={onClose}
-            style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ padding: "8px 12px", borderRadius: 10, background: "transparent", color: "#eaeaea", border: "1px solid rgba(255,255,255,0.15)", display: "inline-flex", alignItems: "center" }}
           >
-            Cerrar
+            <IconLabel icon={X}>Cerrar</IconLabel>
           </button>
         </div>
       </div>
