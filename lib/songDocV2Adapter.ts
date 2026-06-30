@@ -3,6 +3,7 @@ import { getFingeringForNote, EMPTY } from "@/lib/fingerings";
 import {
   buildPlaySectionsFromTokens,
   flattenSongLayoutTokens,
+  resolveLayoutTokenEventId,
   type LayoutTabToken,
 } from "@/lib/layoutSpaces";
 import type { Fingering, NoteEvent, NoteId } from "@/lib/types";
@@ -31,11 +32,7 @@ function tokenToNoteEvent(token: LayoutTabToken, id: string): NoteEvent | null {
 
 function tokenToFlatId(token: LayoutTabToken, autoSpaceIdx: number): string | null {
   if (token.kind === "section") return null;
-  if (token.kind === "note" && token.sourceId) return token.sourceId;
-  if (token.kind === "line-break" && token.sourceId) return token.sourceId;
-  if (token.kind === "space" && token.sourceId) return token.sourceId;
-  if (token.kind === "space" && token.auto) return `auto-space:${autoSpaceIdx}`;
-  return null;
+  return resolveLayoutTokenEventId(token, autoSpaceIdx);
 }
 
 export function flattenSectionEvents(doc: Pick<SongDocV2, "events" | "timing" | "layout">): string[] {

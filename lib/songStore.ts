@@ -270,7 +270,7 @@ export function saveSongDocV2(
     transpose,
     category: (category || "").trim(),
     subcategory: (subcategory || "").trim(),
-    doc,
+    doc: normalizeSongDocV2(doc),
   };
   writeStoreV7(store);
   removeSongV6Only(trimmed);

@@ -16,17 +16,21 @@ export type LayoutTabToken =
 
 const DEFAULT_AUTO_SPACE_MIN_RATIO = 0.5;
 
+export function isAutoSpacesEnabled(layout?: SongLayout): boolean {
+  return layout?.autoSpacesEnabled !== false;
+}
+
 export function getAutoSpaceUnitTicks(timing: SongTiming, layout?: SongLayout): number {
   return layout?.autoSpaceUnit === "eighth" ? timing.ppq / 2 : timing.ppq;
 }
 
 export function getAutoSpaceMinTicks(timing: SongTiming, layout?: SongLayout): number {
   if (layout?.autoSpaceMinTicks != null) return layout.autoSpaceMinTicks;
-  return Math.floor(timing.ppq * DEFAULT_AUTO_SPACE_MIN_RATIO);
+  return Math.floor(getAutoSpaceUnitTicks(timing, layout) * DEFAULT_AUTO_SPACE_MIN_RATIO);
 }
 
 export function computeAutoSpaceCount(gap: number, timing: SongTiming, layout?: SongLayout): number {
-  if (gap <= 0) return 0;
+  if (gap <= 0 || !isAutoSpacesEnabled(layout)) return 0;
   const minTicks = getAutoSpaceMinTicks(timing, layout);
   if (gap < minTicks) return 0;
   return 1;
@@ -45,13 +49,15 @@ function lastTokenIsSection(out: LayoutTabToken[]): boolean {
 }
 
 function pushSection(out: LayoutTabToken[], token: Extract<LayoutTabToken, { kind: "section" }>) {
-  if (lastTokenIsSpace(out)) out.pop();
+  const last = lastToken(out);
+  if (last?.kind === "space") out.pop();
   if (lastTokenIsSection(out)) out.pop();
   out.push(token);
 }
 
 function pushLineBreak(out: LayoutTabToken[], token: Extract<LayoutTabToken, { kind: "line-break" }>) {
-  if (lastTokenIsSpace(out)) out.pop();
+  const last = lastToken(out);
+  if (last?.kind === "space") out.pop();
   if (lastTokenIsSection(out)) return;
   out.push(token);
 }
@@ -69,9 +75,29 @@ function pushAutoSpaceIfGap(
   timing: SongTiming,
   layout?: SongLayout
 ) {
-  if (computeAutoSpaceCount(gap, timing, layout) > 0) {
-    pushSpace(out, { kind: "space", auto: true });
+  if (computeAutoSpaceCount(gap, timing, layout) <= 0) return;
+  const last = lastToken(out);
+  if (last?.kind === "section" || last?.kind === "line-break") return;
+  if (lastTokenIsSpace(out)) return;
+  out.push({ kind: "space", auto: true });
+}
+
+function collectTimedNotes(events: TimedEvent[]): TimedNote[] {
+  return events.filter((e): e is TimedNote => e.kind === "note");
+}
+
+/** Fin del sonido más reciente que ya terminó en o antes de `tick` (ignora notas que aún suenan). */
+function maxSoundEndAtOrBefore(notes: TimedNote[], tick: number): number {
+  let maxEnd = 0;
+  for (const n of notes) {
+    const end = n.start + n.duration;
+    if (end <= tick) maxEnd = Math.max(maxEnd, end);
   }
+  return maxEnd;
+}
+
+function silenceGapBeforeTick(notes: TimedNote[], tick: number): number {
+  return Math.max(0, tick - maxSoundEndAtOrBefore(notes, tick));
 }
 
 type ClusterItem = { kind: "cluster"; tick: number; notes: TimedNote[] };
@@ -127,8 +153,9 @@ export function flattenSongLayoutTokens(
   doc: Pick<SongDocV2, "events" | "timing" | "layout">
 ): LayoutTabToken[] {
   const items = buildTimelineItems(doc.events);
+  const allNotes = collectTimedNotes(doc.events);
   const out: LayoutTabToken[] = [];
-  let lastSoundEnd = 0;
+  let lastNoteClusterTick = -1;
 
   const intro = implicitIntroForFlatten(doc);
   if (intro) {
@@ -150,32 +177,50 @@ export function flattenSongLayoutTokens(
       i++;
     }
 
-    pushAutoSpaceIfGap(out, Math.max(0, tick - lastSoundEnd), doc.timing, doc.layout);
+    let gap = silenceGapBeforeTick(allNotes, tick);
+    if (lastNoteClusterTick >= 0) {
+      const unit = getAutoSpaceUnitTicks(doc.timing, doc.layout);
+      if (tick - lastNoteClusterTick >= 2 * unit) {
+        gap = Math.max(gap, unit);
+      }
+    }
+    const notesInGroup: TimedNote[] = [];
+    let sectionMarker: Extract<TimedEvent, { kind: "marker" }> | null = null;
+    let lineBreakMarker: Extract<TimedEvent, { kind: "marker" }> | null = null;
+    let spaceMarker: Extract<TimedEvent, { kind: "marker" }> | null = null;
 
-    let clusterEnd = lastSoundEnd;
     for (const item of group) {
-      if (item.kind === "marker") {
-        if (isSectionMarker(item.marker)) {
-          pushSection(out, {
-            kind: "section",
-            name: item.marker.name,
-            color: item.marker.color,
-            sourceId: item.marker.id,
-          });
-        } else if (isLineBreakMarker(item.marker)) {
-          pushLineBreak(out, { kind: "line-break", sourceId: item.marker.id });
-        } else if (isSpaceMarker(item.marker)) {
-          pushSpace(out, { kind: "space", sourceId: item.marker.id });
-        }
-      } else {
-        for (const note of item.notes) {
-          out.push({ kind: "note", note: note.note, sourceId: note.id });
-        }
-        clusterEnd = Math.max(clusterEnd, ...item.notes.map((n) => n.start + n.duration));
+      if (item.kind === "cluster") {
+        notesInGroup.push(...item.notes);
+      } else if (item.kind === "marker") {
+        if (isSectionMarker(item.marker)) sectionMarker = item.marker;
+        else if (isLineBreakMarker(item.marker)) lineBreakMarker = item.marker;
+        else if (isSpaceMarker(item.marker)) spaceMarker = item.marker;
       }
     }
 
-    lastSoundEnd = Math.max(lastSoundEnd, clusterEnd);
+    // Entre notas: a lo sumo un separador — sección > salto > espacio (manual o auto).
+    if (sectionMarker && isSectionMarker(sectionMarker)) {
+      pushSection(out, {
+        kind: "section",
+        name: sectionMarker.name,
+        color: sectionMarker.color,
+        sourceId: sectionMarker.id,
+      });
+    } else if (lineBreakMarker && isLineBreakMarker(lineBreakMarker)) {
+      pushLineBreak(out, { kind: "line-break", sourceId: lineBreakMarker.id });
+    } else if (spaceMarker && isSpaceMarker(spaceMarker)) {
+      pushSpace(out, { kind: "space", sourceId: spaceMarker.id });
+    } else if (notesInGroup.length > 0) {
+      pushAutoSpaceIfGap(out, gap, doc.timing, doc.layout);
+    }
+
+    if (notesInGroup.length > 0) {
+      for (const note of notesInGroup) {
+        out.push({ kind: "note", note: note.note, sourceId: note.id });
+      }
+      lastNoteClusterTick = tick;
+    }
   }
 
   return out;
@@ -188,6 +233,18 @@ export function flattenSectionLayoutTokens(
   layout?: SongLayout
 ): LayoutTabToken[] {
   return flattenSongLayoutTokens({ events, timing, layout });
+}
+
+export function autoSpaceEventId(index: number): string {
+  return `auto-space:${index}`;
+}
+
+export function resolveLayoutTokenEventId(token: LayoutTabToken, autoSpaceIdx: number): string | null {
+  if (token.kind === "note" && token.sourceId) return token.sourceId;
+  if (token.kind === "line-break" && token.sourceId) return token.sourceId;
+  if (token.kind === "space" && token.sourceId) return token.sourceId;
+  if (token.kind === "space" && token.auto) return autoSpaceEventId(autoSpaceIdx);
+  return null;
 }
 
 export function layoutTokensToNotes(tokens: LayoutTabToken[]): string[] {
@@ -224,6 +281,7 @@ export function buildPlaySectionsFromTokens(
     };
   };
 
+  let autoSpaceIdx = 0;
   for (const token of tokens) {
     if (token.kind === "section") {
       startSection(token.name, token.color, token.sourceId);
@@ -235,15 +293,13 @@ export function buildPlaySectionsFromTokens(
     if (token.kind === "note" && token.sourceId) {
       const ev = noteEventsBySourceId.get(token.sourceId);
       if (ev) current.events.push(ev);
-    } else if (token.kind === "space") {
-      const id = token.sourceId ?? `auto-space-${current.events.length}`;
-      const ev = noteEventsBySourceId.get(id);
-      if (ev) current.events.push(ev);
-    } else if (token.kind === "line-break") {
-      const id = token.sourceId ?? `line-break-${current.events.length}`;
-      const ev = noteEventsBySourceId.get(id);
-      if (ev) current.events.push(ev);
+      continue;
     }
+    const id = resolveLayoutTokenEventId(token, autoSpaceIdx);
+    if (token.kind === "space" && token.auto) autoSpaceIdx++;
+    if (!id) continue;
+    const ev = noteEventsBySourceId.get(id);
+    if (ev) current.events.push(ev);
   }
 
   if (current && current.events.length > 0) sections.push(current);

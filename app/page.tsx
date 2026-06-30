@@ -67,6 +67,9 @@ export default function Page() {
   const [recoveryDraft, setRecoveryDraft] = useState<DraftRecovery | null>(null);
   const [recoveryDraftV2, setRecoveryDraftV2] = useState<DraftRecoveryV2 | null>(null);
   const draftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftDebounceV2Ref = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transposeRef = useRef(0);
+  const selectedSavedRef = useRef(selectedSaved);
   const undoStackRef = useRef<SongDoc[]>([]);
   const redoStackRef = useRef<SongDoc[]>([]);
   const undoStackV2Ref = useRef<SongDocV2[]>([]);
@@ -87,6 +90,10 @@ export default function Page() {
   }, [docV2]);
 
   useEffect(() => {
+    selectedSavedRef.current = selectedSaved;
+  }, [selectedSaved]);
+
+  useEffect(() => {
     setSavedNames(listSongNames());
     setAllSongs(listSongsWithCategories());
     setCategories(listCategories());
@@ -94,17 +101,30 @@ export default function Page() {
 
   useEffect(() => {
     const d = loadDraft();
-    if (d) {
-      const hasAnyNotes = Object.values(d.doc.sectionsById).some((s) => s.items.length > 0);
-      if (d.savedName || hasAnyNotes) setRecoveryDraft(d);
-      else clearDraft();
-    }
     const d2 = loadDraftV2();
-    if (d2) {
-      const hasAny = normalizeSongDocV2(d2.doc).events.some((e) => e.kind === "note");
-      if (d2.savedName || hasAny) setRecoveryDraftV2(d2);
-      else clearDraftV2();
+
+    const draftV1Valid =
+      d &&
+      (d.savedName || Object.values(d.doc.sectionsById).some((s) => s.items.length > 0));
+    const draftV2Valid =
+      d2 &&
+      (d2.savedName || normalizeSongDocV2(d2.doc).events.some((e) => e.kind === "note"));
+
+    if (!draftV1Valid && d) clearDraft();
+    if (!draftV2Valid && d2) clearDraftV2();
+
+    if (draftV1Valid && draftV2Valid) {
+      if ((d2!.savedAt || 0) >= (d!.savedAt || 0)) {
+        clearDraft();
+        setRecoveryDraftV2(d2!);
+      } else {
+        clearDraftV2();
+        setRecoveryDraft(d!);
+      }
+      return;
     }
+    if (draftV2Valid) setRecoveryDraftV2(d2!);
+    else if (draftV1Valid) setRecoveryDraft(d!);
   }, []);
 
   const [isElectron, setIsElectron] = useState(false);
@@ -122,6 +142,11 @@ export default function Page() {
 
   const { ready: pianoReady, play } = usePiano();
   const [transpose, setTranspose] = useState<number>(0);
+
+  useEffect(() => {
+    transposeRef.current = transpose;
+  }, [transpose]);
+
   const [testMode, setTestMode] = useState<boolean>(false);
   const [freeMode, setFreeMode] = useState<boolean>(false);
   const [mode, setMode] = useState<"tocar" | "componer" | "componer-beta" | "repertorio">("tocar");
@@ -135,6 +160,32 @@ export default function Page() {
       });
     const arrangement = (d.arrangement || []).map((x) => x.sectionId);
     return JSON.stringify({ v: 1, t, arrangement, sections });
+  }
+
+  function countNotesV1(d: SongDoc): number {
+    return Object.values(d.sectionsById).reduce((n, s) => n + (s?.items?.length ?? 0), 0);
+  }
+
+  function countNotesV2(d: SongDocV2): number {
+    return normalizeSongDocV2(d).events.filter((e) => e.kind === "note").length;
+  }
+
+  function isDirtyV1Now(): boolean {
+    if (!baselineFpRef.current) return false;
+    return docFingerprint(docRef.current, transposeRef.current) !== baselineFpRef.current;
+  }
+
+  function isDirtyV2Now(): boolean {
+    if (!baselineFpV2Ref.current) return false;
+    return docFingerprintV2(docV2Ref.current, transposeRef.current) !== baselineFpV2Ref.current;
+  }
+
+  function hasContentV1Now(): boolean {
+    return !!selectedSavedRef.current || countNotesV1(docRef.current) > 0;
+  }
+
+  function hasContentV2Now(): boolean {
+    return !!selectedSavedRef.current || countNotesV2(docV2Ref.current) > 0;
   }
 
   useEffect(() => {
@@ -188,57 +239,69 @@ export default function Page() {
 
   useEffect(() => {
     if (mode !== "componer") return;
-    const hasContent = !!selectedSaved || flatSong.events.length > 0;
-    if (!hasContent || !isDirty) return;
+    if (!hasContentV1Now() || !isDirtyV1Now()) return;
     if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
     draftDebounceRef.current = setTimeout(() => {
       draftDebounceRef.current = null;
-      saveDraft(doc, transpose, selectedSaved);
+      saveDraft(docRef.current, transposeRef.current, selectedSavedRef.current);
     }, 1000);
     return () => {
       if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
     };
-  }, [mode, doc, transpose, selectedSaved, flatSong.events.length, isDirty]);
+  }, [mode, doc, transpose, selectedSaved, isDirty]);
 
   useEffect(() => {
     if (mode !== "componer-beta") return;
-    const hasContent = !!selectedSaved || flatSongV2NoteCount > 0;
-    if (!hasContent || !isDirtyV2) return;
-    if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
-    draftDebounceRef.current = setTimeout(() => {
-      draftDebounceRef.current = null;
-      saveDraftV2(docV2, transpose, selectedSaved);
+    if (!hasContentV2Now() || !isDirtyV2Now()) return;
+    if (draftDebounceV2Ref.current) clearTimeout(draftDebounceV2Ref.current);
+    draftDebounceV2Ref.current = setTimeout(() => {
+      draftDebounceV2Ref.current = null;
+      saveDraftV2(docV2Ref.current, transposeRef.current, selectedSavedRef.current);
     }, 1000);
     return () => {
-      if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+      if (draftDebounceV2Ref.current) clearTimeout(draftDebounceV2Ref.current);
     };
-  }, [mode, docV2, transpose, selectedSaved, flatSongV2NoteCount, isDirtyV2]);
+  }, [mode, docV2, transpose, selectedSaved, isDirtyV2]);
 
   useEffect(() => {
     const onBeforeUnload = () => {
-      if (mode === "componer") {
-        const hasContent = !!selectedSaved || flatSong.events.length > 0;
-        if (hasContent && isDirty) saveDraft(doc, transpose, selectedSaved);
+      if (mode === "componer" && hasContentV1Now() && isDirtyV1Now()) {
+        saveDraft(docRef.current, transposeRef.current, selectedSavedRef.current);
       }
-      if (mode === "componer-beta") {
-        const hasContent = !!selectedSaved || flatSongV2NoteCount > 0;
-        if (hasContent && isDirtyV2) saveDraftV2(docV2, transpose, selectedSaved);
+      if (mode === "componer-beta" && hasContentV2Now() && isDirtyV2Now()) {
+        saveDraftV2(docV2Ref.current, transposeRef.current, selectedSavedRef.current);
       }
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [mode, doc, docV2, transpose, selectedSaved, flatSong.events.length, flatSongV2NoteCount, isDirty, isDirtyV2]);
+  }, [mode, doc, docV2, transpose, selectedSaved, isDirty, isDirtyV2]);
 
   async function confirmLoseChanges(actionLabel: string): Promise<boolean> {
     if (mode === "componer") {
-      if (!isDirty) return true;
-      if (!selectedSaved && flatSong.events.length === 0) return true;
+      if (!isDirtyV1Now()) return true;
+      if (!hasContentV1Now()) return true;
       return await askConfirm(`La canción actual tiene cambios sin guardar.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`);
     }
     if (mode === "componer-beta") {
-      if (!isDirtyV2) return true;
-      if (!selectedSaved && flatSongV2NoteCount === 0) return true;
+      if (!isDirtyV2Now()) return true;
+      if (!hasContentV2Now()) return true;
       return await askConfirm(`La canción actual tiene cambios sin guardar.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`);
+    }
+    return true;
+  }
+
+  async function confirmLoseAnyUnsaved(actionLabel: string): Promise<boolean> {
+    if (isDirtyV2Now() && hasContentV2Now()) {
+      const ok = await askConfirm(
+        `Hay cambios sin guardar en Componer β.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`
+      );
+      if (!ok) return false;
+    }
+    if (isDirtyV1Now() && hasContentV1Now()) {
+      const ok = await askConfirm(
+        `Hay cambios sin guardar en Componer.\n\n¿Continuar con "${actionLabel}" y perder los cambios?`
+      );
+      if (!ok) return false;
     }
     return true;
   }
@@ -492,13 +555,20 @@ export default function Page() {
         loadedV2 = migrateV1ToV2(loaded, t);
         setActiveSongFormat("v1");
       }
+      const v1 = songDocV2ToSongDocV1(loadedV2);
       setDocV2(loadedV2);
+      setDoc(v1);
       omittedReminderFpRef.current = null;
       undoStackV2Ref.current = [];
       redoStackV2Ref.current = [];
+      undoStackRef.current = [];
+      redoStackRef.current = [];
       const fp2 = docFingerprintV2(loadedV2, t);
       baselineFpV2Ref.current = fp2;
       setBaselineFpV2(fp2);
+      const fp = docFingerprint(v1, t);
+      baselineFpRef.current = fp;
+      setBaselineFp(fp);
       return true;
     }
 
@@ -513,20 +583,32 @@ export default function Page() {
         omittedReminderFpRef.current = null;
         undoStackRef.current = [];
         redoStackRef.current = [];
+        undoStackV2Ref.current = [];
+        redoStackV2Ref.current = [];
         const fp = docFingerprint(v1, t);
         baselineFpRef.current = fp;
         setBaselineFp(fp);
+        const fp2 = docFingerprintV2(loaded, t);
+        baselineFpV2Ref.current = fp2;
+        setBaselineFpV2(fp2);
       } else {
         const loaded = loadSongDoc(name);
         if (!loaded) return false;
+        const loadedV2 = migrateV1ToV2(loaded, t);
         setDoc(loaded);
+        setDocV2(loadedV2);
         setActiveSongFormat("v1");
         omittedReminderFpRef.current = null;
         undoStackRef.current = [];
         redoStackRef.current = [];
+        undoStackV2Ref.current = [];
+        redoStackV2Ref.current = [];
         const fp = docFingerprint(loaded, t);
         baselineFpRef.current = fp;
         setBaselineFp(fp);
+        const fp2 = docFingerprintV2(loadedV2, t);
+        baselineFpV2Ref.current = fp2;
+        setBaselineFpV2(fp2);
       }
       return true;
     }
@@ -534,34 +616,58 @@ export default function Page() {
     if (fmt === "v2") {
       const loaded = loadSongDocV2(name);
       if (!loaded) return false;
+      const v1 = songDocV2ToSongDocV1(loaded);
       setDocV2(loaded);
+      setDoc(v1);
       setActiveSongFormat("v2");
+      omittedReminderFpRef.current = null;
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      undoStackV2Ref.current = [];
+      redoStackV2Ref.current = [];
       const fp2 = docFingerprintV2(loaded, t);
       baselineFpV2Ref.current = fp2;
       setBaselineFpV2(fp2);
+      const fp = docFingerprint(v1, t);
+      baselineFpRef.current = fp;
+      setBaselineFp(fp);
     } else {
       const loaded = loadSongDoc(name);
       if (!loaded) return false;
+      const loadedV2 = migrateV1ToV2(loaded, t);
       setDoc(loaded);
+      setDocV2(loadedV2);
       setActiveSongFormat("v1");
+      omittedReminderFpRef.current = null;
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      undoStackV2Ref.current = [];
+      redoStackV2Ref.current = [];
       const fp = docFingerprint(loaded, t);
       baselineFpRef.current = fp;
       setBaselineFp(fp);
+      const fp2 = docFingerprintV2(loadedV2, t);
+      baselineFpV2Ref.current = fp2;
+      setBaselineFpV2(fp2);
     }
     return true;
   }
 
   function performSaveV2(name: string, category: string, subcategory: string) {
-    saveSongDocV2(name, docV2, transpose, category, subcategory);
+    const docToSave = normalizeSongDocV2(docV2Ref.current);
+    const t = transposeRef.current;
+    saveSongDocV2(name, docToSave, t, category, subcategory);
     clearDraftV2();
-    const fp = docFingerprintV2(docV2, transpose);
+    const fp = docFingerprintV2(docToSave, t);
     baselineFpV2Ref.current = fp;
     justSavedRef.current = true;
     setBaselineFpV2(fp);
+    setDocV2(docToSave);
     setActiveSongFormat("v2");
     const names = listSongNames();
     setSavedNames(names);
     setSelectedSaved(name);
+    selectedSavedRef.current = name;
     setAllSongs(listSongsWithCategories());
     setCategories(listCategories());
     showToast("Canción guardada");
@@ -572,15 +678,18 @@ export default function Page() {
   }
 
   function performSave(name: string, category: string, subcategory: string) {
-    saveSongDoc(name, doc, transpose, category, subcategory);
+    const docToSave = docRef.current;
+    const t = transposeRef.current;
+    saveSongDoc(name, docToSave, t, category, subcategory);
     clearDraft();
-    const fp = docFingerprint(doc, transpose);
+    const fp = docFingerprint(docToSave, t);
     baselineFpRef.current = fp;
     justSavedRef.current = true;
     setBaselineFp(fp);
     const names = listSongNames();
     setSavedNames(names);
     setSelectedSaved(name);
+    selectedSavedRef.current = name;
     setAllSongs(listSongsWithCategories());
     setCategories(listCategories());
     showToast("Canción guardada");
@@ -591,38 +700,46 @@ export default function Page() {
   }
 
   const handleOpenSaveV2 = useCallback(() => {
-    if (flatSongV2NoteCount === 0) {
+    if (countNotesV2(docV2Ref.current) === 0) {
       pendingModeSwitchRef.current = null;
+      showToast("La canción está vacía");
       return;
     }
-    if (selectedSaved) {
+    if (selectedSavedRef.current) {
       void (async () => {
         const ok = await askConfirm("¿Quieres sobrescribir esta canción?");
-        if (!ok) return;
-        const meta = allSongs.find((s) => s.name === selectedSaved);
-        performSaveV2(selectedSaved, meta?.category ?? "", meta?.subcategory ?? "");
+        if (!ok) {
+          pendingModeSwitchRef.current = null;
+          return;
+        }
+        const meta = allSongs.find((s) => s.name === selectedSavedRef.current);
+        performSaveV2(selectedSavedRef.current, meta?.category ?? "", meta?.subcategory ?? "");
       })();
       return;
     }
     setSaveOpen(true);
-  }, [flatSongV2NoteCount, selectedSaved, allSongs]);
+  }, [allSongs]);
 
   const handleOpenSave = useCallback(() => {
-    if (flatSong.events.length === 0) {
+    if (countNotesV1(docRef.current) === 0) {
       pendingModeSwitchRef.current = null;
+      showToast("La canción está vacía");
       return;
     }
-    if (selectedSaved) {
+    if (selectedSavedRef.current) {
       void (async () => {
         const ok = await askConfirm("¿Quieres sobrescribir esta canción?");
-        if (!ok) return;
-        const meta = allSongs.find((s) => s.name === selectedSaved);
-        performSave(selectedSaved, meta?.category ?? "", meta?.subcategory ?? "");
+        if (!ok) {
+          pendingModeSwitchRef.current = null;
+          return;
+        }
+        const meta = allSongs.find((s) => s.name === selectedSavedRef.current);
+        performSave(selectedSavedRef.current, meta?.category ?? "", meta?.subcategory ?? "");
       })();
       return;
     }
     setSaveOpen(true);
-  }, [flatSong.events.length, selectedSaved, allSongs]);
+  }, [allSongs]);
 
   function handleDocChangeFromComposerV2(next: SongDocV2) {
     if (skipUndoPushV2Ref.current) {
@@ -747,10 +864,8 @@ export default function Page() {
       return;
     }
     if (mode === "componer") {
-      const hasContent = selectedSaved || flatSong.events.length > 0;
-      const currentFp = docFingerprint(doc, transpose);
-      const reallyDirty = currentFp !== baselineFpRef.current;
-      if (reallyDirty && newMode !== "componer" && hasContent) {
+      if (isDirtyV1Now() && newMode !== "componer" && hasContentV1Now()) {
+        const currentFp = docFingerprint(docRef.current, transposeRef.current);
         if (omittedReminderFpRef.current === currentFp) {
           setMode(newMode);
           return;
@@ -761,10 +876,8 @@ export default function Page() {
       }
     }
     if (mode === "componer-beta") {
-      const hasContent = selectedSaved || flatSongV2NoteCount > 0;
-      const currentFp = docFingerprintV2(docV2, transpose);
-      const reallyDirty = currentFp !== baselineFpV2Ref.current;
-      if (reallyDirty && newMode !== "componer-beta" && hasContent) {
+      if (isDirtyV2Now() && newMode !== "componer-beta" && hasContentV2Now()) {
+        const currentFp = docFingerprintV2(docV2Ref.current, transposeRef.current);
         if (omittedReminderFpRef.current === currentFp) {
           setMode(newMode);
           return;
@@ -807,18 +920,18 @@ export default function Page() {
   }
 
   requestCloseRef.current = async () => {
-    const ok = await confirmLoseChanges("Cerrar");
-    if (ok) {
-      if (mode === "componer") {
-        const hasContent = !!selectedSaved || flatSong.events.length > 0;
-        if (hasContent && isDirty) saveDraft(doc, transpose, selectedSaved);
-      }
-      if (mode === "componer-beta") {
-        const hasContent = !!selectedSaved || flatSongV2NoteCount > 0;
-        if (hasContent && isDirtyV2) saveDraftV2(docV2, transpose, selectedSaved);
-      }
-      (window as any).electron?.close();
+    const ok =
+      mode === "componer" || mode === "componer-beta"
+        ? await confirmLoseChanges("Cerrar")
+        : await confirmLoseAnyUnsaved("Cerrar");
+    if (!ok) return;
+    if (mode === "componer" && hasContentV1Now() && isDirtyV1Now()) {
+      saveDraft(docRef.current, transposeRef.current, selectedSavedRef.current);
     }
+    if (mode === "componer-beta" && hasContentV2Now() && isDirtyV2Now()) {
+      saveDraftV2(docV2Ref.current, transposeRef.current, selectedSavedRef.current);
+    }
+    (window as any).electron?.close();
   };
 
   const titleBarHeight = isElectron ? 37 : 0; // 36px + 1px border
@@ -1064,12 +1177,13 @@ export default function Page() {
           songs={allSongs}
           onClose={() => setPickerOpen(false)}
           onPick={async (name) => {
-            if (mode === "componer" && name !== selectedSaved) {
-              const ok = await confirmLoseChanges(`Seleccionar "${name}"`);
-              if (!ok) return false;
-            }
-            if (mode === "componer-beta" && name !== selectedSaved) {
-              const ok = await confirmLoseChanges(`Seleccionar "${name}"`);
+            if (mode === "componer" || mode === "componer-beta") {
+              if (name !== selectedSaved) {
+                const ok = await confirmLoseChanges(`Seleccionar "${name}"`);
+                if (!ok) return false;
+              }
+            } else if (name !== selectedSaved) {
+              const ok = await confirmLoseAnyUnsaved(`Seleccionar "${name}"`);
               if (!ok) return false;
             }
             if (mode === "componer-beta") {
@@ -1091,10 +1205,10 @@ export default function Page() {
           onCancel={() => setSaveOpen(false)}
           onSave={(name, category, subcategory) => {
             if (mode === "componer-beta") {
-              if (flatSongV2NoteCount === 0) return;
+              if (countNotesV2(docV2Ref.current) === 0) return;
               performSaveV2(name, category, subcategory);
             } else {
-              if (flatSong.events.length === 0) return;
+              if (countNotesV1(docRef.current) === 0) return;
               performSave(name, category, subcategory);
             }
             setSaveOpen(false);
@@ -1169,9 +1283,9 @@ export default function Page() {
               <button
                 onClick={() => {
                   if (mode === "componer-beta") {
-                    omittedReminderFpRef.current = docFingerprintV2(docV2, transpose);
+                    omittedReminderFpRef.current = docFingerprintV2(docV2Ref.current, transposeRef.current);
                   } else {
-                    omittedReminderFpRef.current = docFingerprint(doc, transpose);
+                    omittedReminderFpRef.current = docFingerprint(docRef.current, transposeRef.current);
                   }
                   setUnsavedReminderOpen(false);
                   setMode(pendingModeSwitch);

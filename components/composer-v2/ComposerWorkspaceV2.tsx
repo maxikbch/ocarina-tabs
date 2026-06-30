@@ -26,6 +26,7 @@ import {
 import { analyzePlayability } from "@/lib/songConflicts";
 import type { ConflictJumpTarget } from "@/components/composer-v2/ConflictBanner";
 import { effectiveTranspose, findOutOfRangeNotesForCompose } from "@/lib/composerV2Display";
+import { isAutoSpacesEnabled } from "@/lib/layoutSpaces";
 import {
   createLineBreakMarker,
   createSectionMarker,
@@ -126,6 +127,7 @@ export default function ComposerWorkspaceV2({
   );
 
   const snapDiv = useMemo(() => getSnapTicks(doc, snap), [doc, snap]);
+  const autoSpacesEnabled = useMemo(() => isAutoSpacesEnabled(doc.layout), [doc.layout]);
 
   function updateDoc(mut: (draft: SongDocV2) => void) {
     onDocChange(patchSongDocV2(doc, mut));
@@ -544,6 +546,12 @@ export default function ComposerWorkspaceV2({
         onInsertLineBreak={insertLineBreak}
         onInsertSpace={insertSpace}
         onInsertSection={insertSection}
+        autoSpacesEnabled={autoSpacesEnabled}
+        onAutoSpacesEnabledChange={(enabled) => {
+          updateDoc((d) => {
+            d.layout = { ...d.layout, autoSpacesEnabled: enabled };
+          });
+        }}
       />
 
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", width: "fit-content" }}>

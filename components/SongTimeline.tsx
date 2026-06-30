@@ -492,6 +492,9 @@ export default function SongTimeline({
             for (let idx = 0; idx < song.length; idx++) {
               const ev = song[idx];
               const isBreak = ev.note === "⏎" || ev.note === "BR" || ev.note === "SALTO";
+              const isSpace = ev.note === "—" || ev.note === "SPACE";
+              // Tras sección (col 0 al inicio) o salto de línea: no espacio al inicio de fila.
+              if (isSpace && col === 0) continue;
               if (isBreak) {
                 const rem = col % effectiveCols;
                 if (rem !== 0) {

@@ -77,6 +77,8 @@ export type ImplicitIntro = {
 };
 
 export type SongLayout = {
+  /** Si false, no se insertan espacios automáticos entre notas (los manuales siguen funcionando). */
+  autoSpacesEnabled?: boolean;
   autoSpaceUnit?: "quarter" | "eighth";
   autoSpaceMinTicks?: number;
   implicitIntro?: ImplicitIntro;

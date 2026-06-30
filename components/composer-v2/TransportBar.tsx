@@ -19,6 +19,8 @@ export default function TransportBar({
   onInsertLineBreak,
   onInsertSpace,
   onInsertSection,
+  autoSpacesEnabled,
+  onAutoSpacesEnabledChange,
   snap,
 }: {
   doc: SongDocV2;
@@ -34,6 +36,8 @@ export default function TransportBar({
   onInsertLineBreak: () => void;
   onInsertSpace: () => void;
   onInsertSection: () => void;
+  autoSpacesEnabled: boolean;
+  onAutoSpacesEnabledChange: (enabled: boolean) => void;
 }) {
   const btnStyle: React.CSSProperties = {
     padding: "8px 12px",
@@ -131,6 +135,14 @@ export default function TransportBar({
       <button onClick={onInsertSection} style={btnStyle} title="Insertar marcador de sección en el cursor (doble clic para renombrar)">
         § Sección
       </button>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={autoSpacesEnabled}
+          onChange={(e) => onAutoSpacesEnabledChange(e.target.checked)}
+        />
+        Espacios automáticos
+      </label>
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
         BPM
         <input
