@@ -1,15 +1,14 @@
 "use client";
 
 import { nanoid } from "nanoid";
-import {
-  getBaseSectionName,
-  makeUniqueSectionName,
-  normalizeSectionName,
-  type SongSectionInstance,
-} from "@/lib/songDoc";
+import { normalizeSectionName } from "@/lib/songDoc";
+import { pruneImplicitIntro } from "@/lib/sectionMarkers";
+import { createEmptySongDocV2Normalized, normalizeSongDocV2 } from "@/lib/songDocV2Normalize";
 
 export type PPQ = number;
 export type Tick = number;
+
+export const SONG_TIMELINE_ID = "song";
 
 export type SongTiming = {
   tempo: number;
@@ -31,6 +30,8 @@ export type ImportSource = {
   importedAt: string;
 };
 
+export type SectionColorIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
 export type TimedNote = {
   kind: "note";
   id: string;
@@ -40,17 +41,48 @@ export type TimedNote = {
   voiceId?: string;
 };
 
-export type LayoutMarkerType = "line-break";
+export type LayoutMarkerType = "line-break" | "space" | "section";
 
-export type LayoutMarker = {
+export type LineBreakMarker = {
   kind: "marker";
   id: string;
   tick: Tick;
-  marker: LayoutMarkerType;
+  marker: "line-break";
 };
+
+export type SpaceMarker = {
+  kind: "marker";
+  id: string;
+  tick: Tick;
+  marker: "space";
+};
+
+export type SectionMarker = {
+  kind: "marker";
+  id: string;
+  tick: Tick;
+  marker: "section";
+  name: string;
+  color: SectionColorIndex;
+  placedManually: boolean;
+};
+
+export type LayoutMarker = LineBreakMarker | SpaceMarker | SectionMarker;
 
 export type TimedEvent = TimedNote | LayoutMarker;
 
+export type ImplicitIntro = {
+  name: string;
+  color: SectionColorIndex;
+};
+
+export type SongLayout = {
+  autoSpaceUnit?: "quarter" | "eighth";
+  autoSpaceMinTicks?: number;
+  implicitIntro?: ImplicitIntro;
+};
+
+/** @deprecated Legacy — migrado a `events` por normalizeSongDocV2 */
 export type SongSectionDefV2 = {
   id: string;
   name: string;
@@ -60,10 +92,14 @@ export type SongSectionDefV2 = {
 export type SongDocV2 = {
   version: 2;
   timing: SongTiming;
-  sectionsById: Record<string, SongSectionDefV2>;
-  arrangement: SongSectionInstance[];
+  events: TimedEvent[];
   voices?: Record<string, VoiceDef>;
   importSource?: ImportSource;
+  layout?: SongLayout;
+  /** @deprecated */
+  sectionsById?: Record<string, SongSectionDefV2>;
+  /** @deprecated */
+  arrangement?: Array<{ id: string; sectionId: string }>;
 };
 
 export function createDefaultTiming(): SongTiming {
@@ -71,16 +107,7 @@ export function createDefaultTiming(): SongTiming {
 }
 
 export function createEmptySongDocV2(): SongDocV2 {
-  const sectionId = nanoid();
-  const instanceId = nanoid();
-  return {
-    version: 2,
-    timing: createDefaultTiming(),
-    sectionsById: {
-      [sectionId]: { id: sectionId, name: "General", events: [] },
-    },
-    arrangement: [{ id: instanceId, sectionId }],
-  };
+  return createEmptySongDocV2Normalized();
 }
 
 export function tickOf(event: TimedEvent): Tick {
@@ -95,6 +122,18 @@ export function isLayoutMarker(event: TimedEvent): event is LayoutMarker {
   return event.kind === "marker";
 }
 
+export function isSectionMarker(event: TimedEvent): event is SectionMarker {
+  return event.kind === "marker" && event.marker === "section";
+}
+
+export function isLineBreakMarker(event: TimedEvent): event is LineBreakMarker {
+  return event.kind === "marker" && event.marker === "line-break";
+}
+
+export function isSpaceMarker(event: TimedEvent): event is SpaceMarker {
+  return event.kind === "marker" && event.marker === "space";
+}
+
 export function duplicateEventsWithNewIds(events: TimedEvent[]): TimedEvent[] {
   return events.map((ev) => {
     if (ev.kind === "note") {
@@ -104,18 +143,54 @@ export function duplicateEventsWithNewIds(events: TimedEvent[]): TimedEvent[] {
   });
 }
 
-export function sectionNamesV2(doc: SongDocV2): string[] {
-  return Object.values(doc.sectionsById).map((s) => s.name);
+export function cloneSongDocV2(doc: SongDocV2): SongDocV2 {
+  const normalized = normalizeSongDocV2(doc);
+  return {
+    ...normalized,
+    timing: { ...normalized.timing },
+    events: structuredClone(normalized.events),
+    layout: normalized.layout ? { ...normalized.layout } : undefined,
+    voices: normalized.voices ? structuredClone(normalized.voices) : undefined,
+    importSource: normalized.importSource ? { ...normalized.importSource } : undefined,
+  };
 }
 
-export function makeUniqueSectionNameV2(desired: string, doc: SongDocV2): string {
-  return makeUniqueSectionName(desired, sectionNamesV2(doc));
+export function finalizeSongDocV2(doc: SongDocV2): SongDocV2 {
+  let next = pruneImplicitIntro(normalizeSongDocV2(doc));
+  const layoutByTick = new Map<number, import("@/lib/songDocV2").LayoutMarker>();
+  const notes: TimedNote[] = [];
+  for (const ev of next.events) {
+    if (ev.kind === "note") notes.push(ev);
+    else if (isLayoutMarker(ev)) layoutByTick.set(ev.tick, ev);
+  }
+  next.events = sortEventsByTick([...notes, ...layoutByTick.values()]);
+  return next;
 }
 
-export { getBaseSectionName, makeUniqueSectionName, normalizeSectionName };
+export function patchSongDocV2(doc: SongDocV2, mut: (draft: SongDocV2) => void): SongDocV2 {
+  const next = cloneSongDocV2(doc);
+  mut(next);
+  return finalizeSongDocV2(next);
+}
+
+export { normalizeSectionName };
+
+function layoutMarkerRank(event: TimedEvent): number {
+  if (event.kind !== "marker") return 3;
+  if (event.marker === "section") return 0;
+  if (event.marker === "line-break") return 1;
+  if (event.marker === "space") return 2;
+  return 3;
+}
 
 export function sortEventsByTick(events: TimedEvent[]): TimedEvent[] {
-  return [...events].sort((a, b) => tickOf(a) - tickOf(b) || a.id.localeCompare(b.id));
+  return [...events].filter((e) => e.kind === "note" || isLayoutMarker(e)).sort((a, b) => {
+    const tickDiff = tickOf(a) - tickOf(b);
+    if (tickDiff !== 0) return tickDiff;
+    const rankDiff = layoutMarkerRank(a) - layoutMarkerRank(b);
+    if (rankDiff !== 0) return rankDiff;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 export function getSectionEndTick(events: TimedEvent[]): Tick {
@@ -129,5 +204,7 @@ export function getSectionEndTick(events: TimedEvent[]): Tick {
 }
 
 export function docFingerprintV2(doc: SongDocV2, transpose: number): string {
-  return JSON.stringify({ doc, transpose });
+  return JSON.stringify({ doc: normalizeSongDocV2(doc), transpose });
 }
+
+export { normalizeSongDocV2 } from "@/lib/songDocV2Normalize";

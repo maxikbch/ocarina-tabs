@@ -5,6 +5,7 @@ import { storedToDisplay } from "@/lib/composerV2Display";
 import { formatNoteLabel, type NoteLabelMode } from "@/lib/noteLabels";
 import type { ConflictGroup, InvalidNoteRef, SameCellConflict } from "@/lib/songConflicts";
 import type { SongDocV2 } from "@/lib/songDocV2";
+import { normalizeSongDocV2 } from "@/lib/songDocV2";
 import { tickToBeatLabel } from "@/lib/songTiming";
 
 export type ConflictJumpTarget = {
@@ -37,6 +38,8 @@ export default function ConflictBanner({
     (g) => !sameCellConflicts.some((s) => s.noteIds.every((id) => g.noteIds.includes(id)) && g.noteIds.length === s.noteIds.length)
   );
 
+  const songEvents = normalizeSongDocV2(doc).events;
+
   return (
     <div style={{ display: "grid", gap: 10 }}>
       {outOfRangeNotes.length > 0 ? (
@@ -60,13 +63,12 @@ export default function ConflictBanner({
           </div>
           <div style={{ display: "grid", gap: 6 }}>
             {outOfRangeNotes.slice(0, 12).map((ref) => {
-              const sec = doc.sectionsById[ref.sectionId];
-              const ev = sec?.events.find((e) => e.kind === "note" && e.id === ref.noteId);
+              const ev = songEvents.find((e) => e.kind === "note" && e.id === ref.noteId);
               const start = ev && ev.kind === "note" ? ev.start : 0;
               const display = storedToDisplay(ref.note, composeTranspose);
               return (
                 <button
-                  key={`oor:${ref.sectionId}:${ref.noteId}`}
+                  key={`oor:${ref.noteId}`}
                   onClick={() => onJumpToConflict({ sectionId: ref.sectionId, start })}
                   style={{
                     textAlign: "left",
@@ -79,7 +81,7 @@ export default function ConflictBanner({
                     fontSize: 12,
                   }}
                 >
-                  <strong>{sec?.name ?? "Sección"}</strong> — {formatNoteLabel(display, labelMode)} en{" "}
+                  <strong>Canción</strong> — {formatNoteLabel(display, labelMode)} en{" "}
                   {tickToBeatLabel(start, doc.timing)}
                 </button>
               );
@@ -111,9 +113,7 @@ export default function ConflictBanner({
             Hay dos o más notas iguales en el mismo tiempo. Borrá o mové las que sobren.
           </div>
           <div style={{ display: "grid", gap: 6 }}>
-            {sameCellConflicts.map((g) => {
-              const sec = doc.sectionsById[g.sectionId];
-              return (
+            {sameCellConflicts.map((g) => (
                 <button
                   key={g.id}
                   onClick={() => onJumpToConflict({ sectionId: g.sectionId, start: g.start })}
@@ -128,11 +128,10 @@ export default function ConflictBanner({
                     fontSize: 12,
                   }}
                 >
-                  <strong>{sec?.name ?? "Sección"}</strong> — {formatNoteLabel(g.note, labelMode)} en{" "}
+                  <strong>Canción</strong> — {formatNoteLabel(g.note, labelMode)} en{" "}
                   {tickToBeatLabel(g.start, doc.timing)} ({g.noteIds.length} notas)
                 </button>
-              );
-            })}
+              ))}
           </div>
         </div>
       ) : null}
@@ -153,10 +152,9 @@ export default function ConflictBanner({
           </div>
           <div style={{ display: "grid", gap: 6 }}>
             {overlapOnly.map((g) => {
-              const sec = doc.sectionsById[g.sectionId];
               const noteLabels = g.noteIds
                 .map((id) => {
-                  const ev = sec?.events.find((e) => e.kind === "note" && e.id === id);
+                  const ev = songEvents.find((e) => e.kind === "note" && e.id === id);
                   return ev && ev.kind === "note" ? formatNoteLabel(ev.note, labelMode) : "?";
                 })
                 .join(", ");
@@ -175,7 +173,7 @@ export default function ConflictBanner({
                     fontSize: 12,
                   }}
                 >
-                  <strong>{sec?.name ?? "Sección"}</strong> — {tickToBeatLabel(g.start, doc.timing)} ({noteLabels})
+                  <strong>Canción</strong> — {tickToBeatLabel(g.start, doc.timing)} ({noteLabels})
                 </button>
               );
             })}

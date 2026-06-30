@@ -63,6 +63,7 @@ export default function PianoRollNote({
     <div
       onMouseDown={(e) => {
         if ((e.target as HTMLElement).dataset.resize) return;
+        if (e.button === 2) return;
         e.stopPropagation();
         onPointerDown(e);
       }}
@@ -98,6 +99,7 @@ export default function PianoRollNote({
       <div
         data-resize="1"
         onMouseDown={(e) => {
+          if (e.button === 2) return;
           e.stopPropagation();
           onResizeStart(e);
         }}

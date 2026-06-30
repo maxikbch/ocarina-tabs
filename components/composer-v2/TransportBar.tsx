@@ -17,6 +17,8 @@ export default function TransportBar({
   onPause,
   onStop,
   onInsertLineBreak,
+  onInsertSpace,
+  onInsertSection,
   snap,
 }: {
   doc: SongDocV2;
@@ -30,6 +32,8 @@ export default function TransportBar({
   onPause: () => void;
   onStop: () => void;
   onInsertLineBreak: () => void;
+  onInsertSpace: () => void;
+  onInsertSection: () => void;
 }) {
   const btnStyle: React.CSSProperties = {
     padding: "8px 12px",
@@ -120,6 +124,12 @@ export default function TransportBar({
       </span>
       <button onClick={onInsertLineBreak} style={btnStyle} title="Insertar salto de línea en el cursor">
         ⏎ Salto de línea
+      </button>
+      <button onClick={onInsertSpace} style={btnStyle} title="Marcar un espacio en el cursor (como máximo uno por rango de silencio)">
+        — Espacio
+      </button>
+      <button onClick={onInsertSection} style={btnStyle} title="Insertar marcador de sección en el cursor (doble clic para renombrar)">
+        § Sección
       </button>
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
         BPM

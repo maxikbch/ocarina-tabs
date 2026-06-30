@@ -1,18 +1,21 @@
 import { Midi } from "@tonejs/midi";
 import { nanoid } from "nanoid";
+import { createSectionMarker } from "@/lib/layoutMarkers";
 import {
   createDefaultTiming,
   DEFAULT_PPQ,
   DEFAULT_TEMPO,
-  makeUniqueSectionNameV2,
+  getSectionEndTick,
   sortEventsByTick,
   type SongDocV2,
+  type TimedEvent,
   type TimedNote,
   type VoiceDef,
 } from "@/lib/songDocV2";
+import { normalizeSongDocV2 } from "@/lib/songDocV2";
 import { pickVoiceColor } from "@/lib/songVoices";
 
-const PERCUSSION_CHANNEL = 9; // canal 10 en notación MIDI (0-indexed)
+const PERCUSSION_CHANNEL = 9;
 
 export type MidiImportResult = {
   doc: SongDocV2;
@@ -26,6 +29,13 @@ function sectionNameFromFile(fileName: string): string {
 
 function minNoteDurationTicks(ppq: number): number {
   return Math.max(1, Math.round(ppq / 32));
+}
+
+function shiftEvents(events: TimedEvent[], offset: number): TimedEvent[] {
+  return events.map((ev) => {
+    if (ev.kind === "note") return { ...ev, start: ev.start + offset };
+    return { ...ev, tick: ev.tick + offset };
+  });
 }
 
 export function parseMidiToSongDoc(buffer: ArrayBuffer, fileName: string): MidiImportResult {
@@ -90,28 +100,10 @@ export function parseMidiToSongDoc(buffer: ArrayBuffer, fileName: string): MidiI
     throw new Error("No quedaron pistas con notas después de filtrar percusión.");
   }
 
-  const sectionId = nanoid();
-  const instanceId = nanoid();
-  const desiredName = sectionNameFromFile(fileName);
-  const emptyDoc: SongDocV2 = {
-    version: 2,
-    timing: createDefaultTiming(),
-    sectionsById: { [sectionId]: { id: sectionId, name: desiredName, events: [] } },
-    arrangement: [{ id: instanceId, sectionId }],
-  };
-  const sectionName = makeUniqueSectionNameV2(desiredName, emptyDoc);
-
   const doc: SongDocV2 = {
     version: 2,
     timing: { tempo, ppq },
-    sectionsById: {
-      [sectionId]: {
-        id: sectionId,
-        name: sectionName,
-        events: sortEventsByTick(allNotes),
-      },
-    },
-    arrangement: [{ id: instanceId, sectionId }],
+    events: sortEventsByTick(allNotes),
     voices,
     importSource: {
       kind: "midi",
@@ -127,36 +119,35 @@ export function mergeMidiImportAsNewSection(
   current: SongDocV2,
   imported: SongDocV2
 ): SongDocV2 {
-  const sourceSection = Object.values(imported.sectionsById)[0];
-  if (!sourceSection) return current;
+  const base = normalizeSongDocV2(current);
+  const incoming = normalizeSongDocV2(imported);
+  const offset = getSectionEndTick(base.events);
+  const sectionName = sectionNameFromFile(incoming.importSource?.fileName ?? "Importado");
 
-  const sectionId = nanoid();
-  const instanceId = nanoid();
-  const sectionName = makeUniqueSectionNameV2(sourceSection.name, current);
-
-  const mergedVoices: Record<string, VoiceDef> = { ...(current.voices ?? {}) };
-  for (const [id, def] of Object.entries(imported.voices ?? {})) {
+  const mergedVoices: Record<string, VoiceDef> = { ...(base.voices ?? {}) };
+  for (const [id, def] of Object.entries(incoming.voices ?? {})) {
     mergedVoices[id] = { ...def };
   }
 
-  const events = sourceSection.events.map((ev) => {
-    if (ev.kind === "note") return { ...ev, id: nanoid() };
-    return { ...ev, id: nanoid() };
-  });
+  const shifted = shiftEvents(
+    incoming.events.map((ev) => {
+      if (ev.kind === "note") return { ...ev, id: nanoid() };
+      return { ...ev, id: nanoid() };
+    }),
+    offset
+  );
+
+  const sectionMarker = createSectionMarker(base.events, offset, sectionName, false);
 
   return {
-    ...current,
-    timing: { ...imported.timing },
-    sectionsById: {
-      ...current.sectionsById,
-      [sectionId]: { id: sectionId, name: sectionName, events },
-    },
-    arrangement: [...current.arrangement, { id: instanceId, sectionId }],
+    ...base,
+    timing: { ...incoming.timing },
+    events: sortEventsByTick([...base.events, sectionMarker, ...shifted]),
     voices: Object.keys(mergedVoices).length > 0 ? mergedVoices : undefined,
-    importSource: imported.importSource ?? current.importSource,
+    importSource: incoming.importSource ?? base.importSource,
   };
 }
 
 export function replaceDocWithMidiImport(imported: SongDocV2): SongDocV2 {
-  return imported;
+  return normalizeSongDocV2(imported);
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { nanoid } from "nanoid";
 import PianoKeyboard from "@/components/PianoKeyboard";
 import ConflictBanner from "@/components/composer-v2/ConflictBanner";
 import PianoRoll, {
@@ -12,7 +11,6 @@ import PianoRoll, {
   MIN_PX_PER_TICK,
   MIN_ROW_HEIGHT,
 } from "@/components/composer-v2/PianoRoll";
-import SectionStrip from "@/components/composer-v2/SectionStrip";
 import VoiceStrip from "@/components/composer-v2/VoiceStrip";
 import TransportBar, { getSnapTicks, type SnapDivision } from "@/components/composer-v2/TransportBar";
 import TimelineBar from "@/components/composer-v2/TimelineBar";
@@ -27,16 +25,21 @@ import {
 } from "@/lib/composerV2Clipboard";
 import { analyzePlayability } from "@/lib/songConflicts";
 import type { ConflictJumpTarget } from "@/components/composer-v2/ConflictBanner";
-import { displayToStored, effectiveTranspose, findOutOfRangeNotesForCompose, storedToDisplay } from "@/lib/composerV2Display";
-import { hasFingeringForNote } from "@/lib/fingerings";
+import { effectiveTranspose, findOutOfRangeNotesForCompose } from "@/lib/composerV2Display";
+import {
+  createLineBreakMarker,
+  createSectionMarker,
+  createSpaceMarker,
+  upsertLayoutMarker,
+} from "@/lib/layoutMarkers";
 import { buildPianoRollNotes } from "@/lib/notes";
 import type { NoteLabelMode } from "@/lib/noteLabels";
-import { defaultNoteDuration } from "@/lib/songTiming";
-import type { LayoutMarker, SongDocV2, TimedEvent, TimedNote } from "@/lib/songDocV2";
+import { IMPLICIT_INTRO_MARKER_ID } from "@/lib/sectionMarkers";
+import type { SongDocV2, TimedEvent } from "@/lib/songDocV2";
+import { normalizeSongDocV2, patchSongDocV2 } from "@/lib/songDocV2";
 import { useTimedPlayback } from "@/lib/useTimedPlayback";
-import type { NoteId } from "@/lib/types";
 import { COMPOSER_V2_KEY_BINDINGS, matchesAnyKeyBinding, matchesKeyBinding } from "@/lib/config";
-import { getDefaultActiveVoiceId, hasVoiceLayers, resolveVoiceIdForNewNote } from "@/lib/songVoices";
+import { getDefaultActiveVoiceId, hasVoiceLayers } from "@/lib/songVoices";
 import {
   buildConsolidateConfirmMessage,
   consolidateVisibleVoices,
@@ -53,7 +56,6 @@ export default function ComposerWorkspaceV2({
   onTransposeInc,
   onPreviewNote,
   stickyTopOffset = 12,
-  onRenameSection,
 }: {
   notes: string[];
   labelMode: NoteLabelMode;
@@ -64,9 +66,10 @@ export default function ComposerWorkspaceV2({
   onTransposeInc: () => void;
   onPreviewNote: (note: string, durationSec?: number) => void | Promise<void>;
   stickyTopOffset?: number;
-  onRenameSection: (sectionId: string, currentName: string) => void;
 }) {
-  const [activeInstanceId, setActiveInstanceId] = useState<string | null>(doc.arrangement[0]?.id ?? null);
+  const normalizedDoc = useMemo(() => normalizeSongDocV2(doc), [doc]);
+  const songEvents = normalizedDoc.events;
+
   const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(() => new Set());
   const [snap, setSnap] = useState<SnapDivision>("quarter");
   const [pxPerTick, setPxPerTick] = useState(DEFAULT_PX_PER_TICK);
@@ -80,30 +83,14 @@ export default function ComposerWorkspaceV2({
   const clipboardToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeVoiceId, setActiveVoiceId] = useState<string | undefined>(() => getDefaultActiveVoiceId(doc));
   const [consolidateOpen, setConsolidateOpen] = useState(false);
+  const [showPiano, setShowPiano] = useState(true);
 
-  const { playing, paused, playSectionFrom, pause, stopAndReset, previewNote } = useTimedPlayback({
+  const { playing, paused, playFrom, pause, stopAndReset, previewNote } = useTimedPlayback({
     onPlayheadTick: setCursorTick,
   });
 
   const transportState = playing ? "playing" : paused ? "paused" : "idle";
-
   const displayTranspose = effectiveTranspose(transposeEnabled, transpose);
-
-  const activeInst = doc.arrangement.find((i) => i.id === activeInstanceId);
-  const activeSectionId = activeInst?.sectionId ?? null;
-
-  useEffect(() => {
-    if (!doc.arrangement.some((i) => i.id === activeInstanceId)) {
-      setActiveInstanceId(doc.arrangement[0]?.id ?? null);
-    }
-  }, [doc.arrangement, activeInstanceId]);
-
-  useEffect(() => {
-    setSelectedEventIds(new Set());
-    stopAndReset();
-    setCursorTick(0);
-    setHScrollLeft(0);
-  }, [activeSectionId, stopAndReset]);
 
   useEffect(() => {
     if (!doc.voices) {
@@ -121,14 +108,12 @@ export default function ComposerWorkspaceV2({
 
   const rollNotes = useMemo(() => {
     const storedNotes: string[] = [];
-    for (const sec of Object.values(doc.sectionsById)) {
-      for (const ev of sec.events) {
-        if (ev.kind !== "note") continue;
-        storedNotes.push(ev.note);
-      }
+    for (const ev of songEvents) {
+      if (ev.kind !== "note") continue;
+      storedNotes.push(ev.note);
     }
     return buildPianoRollNotes(storedNotes);
-  }, [doc]);
+  }, [songEvents]);
 
   const outOfRangeNotes = useMemo(
     () => findOutOfRangeNotesForCompose(doc, displayTranspose, rollNotes, { visibleOnly: hasVoiceLayers(doc) }),
@@ -142,28 +127,13 @@ export default function ComposerWorkspaceV2({
 
   const snapDiv = useMemo(() => getSnapTicks(doc, snap), [doc, snap]);
 
-  const activeSectionEvents = useMemo(() => {
-    if (!activeSectionId) return [];
-    return doc.sectionsById[activeSectionId]?.events ?? [];
-  }, [doc, activeSectionId]);
-
-  function patchDoc(mut: (draft: SongDocV2) => void) {
-    const next: SongDocV2 = {
-      ...doc,
-      timing: { ...doc.timing },
-      sectionsById: structuredClone(doc.sectionsById),
-      arrangement: doc.arrangement.map((x) => ({ ...x })),
-    };
-    mut(next);
-    onDocChange(next);
+  function updateDoc(mut: (draft: SongDocV2) => void) {
+    onDocChange(patchSongDocV2(doc, mut));
   }
 
   function showClipboardToast(message: string) {
     setClipboardToast(message);
-    if (clipboardToastRef.current) {
-      clearTimeout(clipboardToastRef.current);
-      clipboardToastRef.current = null;
-    }
+    if (clipboardToastRef.current) clearTimeout(clipboardToastRef.current);
     clipboardToastRef.current = setTimeout(() => {
       setClipboardToast(null);
       clipboardToastRef.current = null;
@@ -171,11 +141,9 @@ export default function ComposerWorkspaceV2({
   }
 
   function insertEventsAtEnd(newEvents: TimedEvent[]) {
-    if (!activeSectionId || newEvents.length === 0) return;
-    patchDoc((d) => {
-      const sec = d.sectionsById[activeSectionId];
-      if (!sec) return;
-      sec.events = [...sec.events, ...newEvents];
+    if (newEvents.length === 0) return;
+    updateDoc((d) => {
+      d.events = [...d.events, ...newEvents];
     });
     setSelectedEventIds(new Set(newEvents.map((e) => e.id)));
     setCursorTick(firstEventTick(newEvents));
@@ -190,51 +158,57 @@ export default function ComposerWorkspaceV2({
   );
 
   const insertLineBreak = useCallback(() => {
-    if (!activeSectionId) return;
-    const marker: LayoutMarker = {
-      kind: "marker",
-      id: nanoid(),
-      tick: cursorTick,
-      marker: "line-break",
-    };
-    patchDoc((d) => {
-      const sec = d.sectionsById[activeSectionId];
-      if (!sec) return;
-      sec.events = [...sec.events, marker];
+    const marker = createLineBreakMarker(cursorTick);
+    updateDoc((d) => {
+      d.events = upsertLayoutMarker(d.events, marker);
     });
     setSelectedEventIds(new Set([marker.id]));
-  }, [activeSectionId, cursorTick, doc, onDocChange]);
+  }, [cursorTick, doc, onDocChange]);
+
+  const insertSpace = useCallback(() => {
+    const marker = createSpaceMarker(cursorTick);
+    updateDoc((d) => {
+      d.events = upsertLayoutMarker(d.events, marker);
+    });
+    setSelectedEventIds(new Set([marker.id]));
+  }, [cursorTick, doc, onDocChange]);
+
+  const insertSection = useCallback(() => {
+    const marker = createSectionMarker(songEvents, cursorTick, "Sección", true);
+    updateDoc((d) => {
+      d.events = upsertLayoutMarker(d.events, marker);
+    });
+    setSelectedEventIds(new Set([marker.id]));
+  }, [cursorTick, songEvents, doc, onDocChange]);
 
   const deleteSelected = useCallback(() => {
-    if (selectedEventIds.size === 0 || !activeSectionId) return;
+    if (selectedEventIds.size === 0) return;
     const ids = new Set(selectedEventIds);
-    patchDoc((d) => {
-      const sec = d.sectionsById[activeSectionId];
-      if (!sec) return;
-      sec.events = sec.events.filter((e) => !ids.has(e.id));
+    if (ids.has(IMPLICIT_INTRO_MARKER_ID)) ids.delete(IMPLICIT_INTRO_MARKER_ID);
+    updateDoc((d) => {
+      d.events = d.events.filter((e) => !ids.has(e.id));
     });
     setSelectedEventIds(new Set());
-  }, [selectedEventIds, activeSectionId, doc, onDocChange]);
+  }, [selectedEventIds, doc, onDocChange]);
 
   const copySelection = useCallback(() => {
-    if (!activeSectionId || selectedEventIds.size === 0) return;
-    const json = buildTimelineClipboardPayload(activeSectionEvents, selectedEventIds);
+    if (selectedEventIds.size === 0) return;
+    const json = buildTimelineClipboardPayload(songEvents, selectedEventIds);
     if (!json) return;
     navigator.clipboard.writeText(json).catch(() => {});
     showClipboardToast("Copiado");
-  }, [activeSectionId, activeSectionEvents, selectedEventIds]);
+  }, [songEvents, selectedEventIds]);
 
   const cutSelection = useCallback(() => {
-    if (!activeSectionId || selectedEventIds.size === 0) return;
-    const json = buildTimelineClipboardPayload(activeSectionEvents, selectedEventIds);
+    if (selectedEventIds.size === 0) return;
+    const json = buildTimelineClipboardPayload(songEvents, selectedEventIds);
     if (!json) return;
     navigator.clipboard.writeText(json).catch(() => {});
     deleteSelected();
     showClipboardToast("Cortado");
-  }, [activeSectionId, activeSectionEvents, selectedEventIds, deleteSelected]);
+  }, [songEvents, selectedEventIds, deleteSelected]);
 
   const pasteFromClipboard = useCallback(async () => {
-    if (!activeSectionId) return;
     let text: string;
     try {
       text = await navigator.clipboard.readText();
@@ -246,24 +220,24 @@ export default function ComposerWorkspaceV2({
     const newEvents = offsetEventsForPaste(data.events, data.anchorTick, cursorTick, snapDiv);
     insertEventsAtEnd(newEvents);
     showClipboardToast("Pegado");
-  }, [activeSectionId, cursorTick, snapDiv, activeSectionId]);
+  }, [cursorTick, snapDiv, doc, onDocChange]);
 
   const duplicateSelection = useCallback(() => {
-    if (!activeSectionId || selectedEventIds.size === 0) return;
-    const json = buildTimelineClipboardPayload(activeSectionEvents, selectedEventIds);
+    if (selectedEventIds.size === 0) return;
+    const json = buildTimelineClipboardPayload(songEvents, selectedEventIds);
     if (!json) return;
     const data = parseTimelineClipboardPayload(json);
     if (!data) return;
-    const pasteTick = computeDuplicatePasteTick(activeSectionEvents, selectedEventIds, snapDiv);
+    const pasteTick = computeDuplicatePasteTick(songEvents, selectedEventIds, snapDiv);
     const newEvents = offsetEventsForPaste(data.events, data.anchorTick, pasteTick, snapDiv);
     insertEventsAtEnd(newEvents);
     showClipboardToast("Duplicado");
-  }, [activeSectionId, activeSectionEvents, selectedEventIds, snapDiv]);
+  }, [songEvents, selectedEventIds, snapDiv]);
 
   const handlePlay = useCallback(() => {
-    if (!activeSectionId || playing) return;
-    void playSectionFrom(doc, activeSectionId, cursorTick, displayTranspose);
-  }, [activeSectionId, playing, playSectionFrom, doc, cursorTick, displayTranspose]);
+    if (playing) return;
+    void playFrom(doc, cursorTick, displayTranspose);
+  }, [playing, playFrom, doc, cursorTick, displayTranspose]);
 
   const handlePause = useCallback(() => {
     if (playing) pause();
@@ -284,13 +258,11 @@ export default function ComposerWorkspaceV2({
 
   const nudgeSelection = useCallback(
     (deltaTick: number, deltaRow: number) => {
-      if (!activeSectionId || selectedEventIds.size === 0) return;
+      if (selectedEventIds.size === 0) return;
       if (deltaTick === 0 && deltaRow === 0) return;
-      patchDoc((d) => {
-        const sec = d.sectionsById[activeSectionId];
-        if (!sec) return;
-        sec.events = nudgeSelectedEvents(
-          sec.events,
+      updateDoc((d) => {
+        d.events = nudgeSelectedEvents(
+          d.events,
           selectedEventIds,
           deltaTick,
           deltaRow,
@@ -299,7 +271,7 @@ export default function ComposerWorkspaceV2({
         );
       });
     },
-    [activeSectionId, selectedEventIds, rollNotes, displayTranspose, doc, onDocChange]
+    [selectedEventIds, rollNotes, displayTranspose, doc, onDocChange]
   );
 
   useEffect(() => {
@@ -369,40 +341,13 @@ export default function ComposerWorkspaceV2({
     handlePlay,
     handlePause,
     handleStop,
-    doc,
-    activeSectionId,
-    displayTranspose,
   ]);
 
-  const keyEnabled = useCallback(
-    (noteId: NoteId) => hasFingeringForNote(noteId),
-    []
-  );
-
-  async function handleKeyboardNote(rawNote: string) {
-    await onPreviewNote(rawNote);
-    if (!activeSectionId) return;
-    const storedNote = displayToStored(rawNote, displayTranspose);
-    const tick = cursorTick;
-    const newNote: TimedNote = {
-      kind: "note",
-      id: nanoid(),
-      note: storedNote,
-      start: tick,
-      duration: defaultNoteDuration(doc.timing),
-      voiceId: resolveVoiceIdForNewNote(doc, activeVoiceId),
-    };
-    patchDoc((d) => {
-      const sec = d.sectionsById[activeSectionId];
-      if (!sec) return;
-      sec.events = [...sec.events, newNote];
-    });
-    setSelectedEventIds(new Set([newNote.id]));
+  function handleKeyboardNote(rawNote: string) {
+    void onPreviewNote(rawNote);
   }
 
   function handleJumpToConflict(target: ConflictJumpTarget) {
-    const inst = doc.arrangement.find((i) => i.sectionId === target.sectionId);
-    if (inst) setActiveInstanceId(inst.id);
     setScrollToTick(target.start);
     setCursorTick(target.start);
   }
@@ -411,7 +356,7 @@ export default function ComposerWorkspaceV2({
     selectedEventIds.size > 1
       ? `${selectedEventIds.size} seleccionados — Ctrl+C/V/X, Ctrl+D, flechas`
       : selectedEventIds.size === 1
-      ? "Ctrl+C/V/X · Ctrl+D duplicar · flechas mover"
+      ? "Ctrl+C/V/X · Ctrl+D duplicar · flechas mover · doble clic renombrar sección"
       : null;
 
   return (
@@ -437,13 +382,6 @@ export default function ComposerWorkspaceV2({
           {clipboardToast}
         </div>
       ) : null}
-      <SectionStrip
-        doc={doc}
-        activeInstanceId={activeInstanceId}
-        onActiveInstanceChange={setActiveInstanceId}
-        onDocChange={onDocChange}
-        onRenameSection={onRenameSection}
-      />
 
       <VoiceStrip
         doc={doc}
@@ -464,16 +402,6 @@ export default function ComposerWorkspaceV2({
           setActiveVoiceId(undefined);
         }}
         zIndex={1180}
-      />
-
-      <ConflictBanner
-        conflicts={playability.conflicts}
-        sameCellConflicts={playability.sameCellConflicts}
-        outOfRangeNotes={outOfRangeNotes}
-        composeTranspose={displayTranspose}
-        doc={doc}
-        labelMode={labelMode}
-        onJumpToConflict={handleJumpToConflict}
       />
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -505,11 +433,7 @@ export default function ComposerWorkspaceV2({
         </button>
         <span style={{ width: 1, height: 20, background: "rgba(255,255,255,0.12)", margin: "0 4px" }} />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={transposeEnabled}
-            onChange={(e) => setTransposeEnabled(e.target.checked)}
-          />
+          <input type="checkbox" checked={transposeEnabled} onChange={(e) => setTransposeEnabled(e.target.checked)} />
           Transponer vista
         </label>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -567,51 +491,44 @@ export default function ComposerWorkspaceV2({
           <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 8 }}>{selectionHint}</span>
         ) : (
           <span style={{ fontSize: 12, opacity: 0.55, marginLeft: 8 }}>
-            Clic der. panear · Alt+clic playhead · línea de tiempo · Espacio
+            Clic der. panear · Alt+clic playhead · Espacio play/pause
           </span>
         )}
       </div>
 
-      {activeSectionId ? (
-        <>
-          <TimelineBar
-            doc={doc}
-            events={activeSectionEvents}
-            pxPerTick={pxPerTick}
-            playheadTick={cursorTick}
-            transportState={transportState}
-            snap={snap}
-            scrollLeft={hScrollLeft}
-            onScrollLeftChange={setHScrollLeft}
-            onPlayheadChange={handlePlayheadChange}
-          />
-          <PianoRoll
-            notes={rollNotes}
-            doc={doc}
-            sectionId={activeSectionId}
-            labelMode={labelMode}
-            transpose={displayTranspose}
-            snap={snap}
-            pxPerTick={pxPerTick}
-            rowHeight={rowHeight}
-            selectedEventIds={selectedEventIds}
-            onSelectionChange={setSelectedEventIds}
-            onDocChange={onDocChange}
-            onPreviewNote={previewRollNote}
-            scrollToTick={scrollToTick}
-            onScrollToTickHandled={() => setScrollToTick(null)}
-            scrollToPlayableRequest={scrollToPlayableRequest}
-            onCursorTickChange={handlePlayheadChange}
-            activeVoiceId={activeVoiceId}
-            playheadTick={cursorTick}
-            transportState={transportState}
-            scrollLeft={hScrollLeft}
-            onViewportScroll={setHScrollLeft}
-          />
-        </>
-      ) : (
-        <div style={{ padding: 24, textAlign: "center", opacity: 0.7 }}>Sin sección activa</div>
-      )}
+      <TimelineBar
+        doc={doc}
+        events={songEvents}
+        pxPerTick={pxPerTick}
+        playheadTick={cursorTick}
+        transportState={transportState}
+        snap={snap}
+        scrollLeft={hScrollLeft}
+        onScrollLeftChange={setHScrollLeft}
+        onPlayheadChange={handlePlayheadChange}
+      />
+      <PianoRoll
+        notes={rollNotes}
+        doc={doc}
+        labelMode={labelMode}
+        transpose={displayTranspose}
+        snap={snap}
+        pxPerTick={pxPerTick}
+        rowHeight={rowHeight}
+        selectedEventIds={selectedEventIds}
+        onSelectionChange={setSelectedEventIds}
+        onDocChange={onDocChange}
+        onPreviewNote={previewRollNote}
+        scrollToTick={scrollToTick}
+        onScrollToTickHandled={() => setScrollToTick(null)}
+        scrollToPlayableRequest={scrollToPlayableRequest}
+        onCursorTickChange={handlePlayheadChange}
+        activeVoiceId={activeVoiceId}
+        playheadTick={cursorTick}
+        transportState={transportState}
+        scrollLeft={hScrollLeft}
+        onViewportScroll={setHScrollLeft}
+      />
 
       <TransportBar
         doc={doc}
@@ -620,34 +537,52 @@ export default function ComposerWorkspaceV2({
         playheadTick={cursorTick}
         snap={snap}
         onSnapChange={setSnap}
-        onTempoChange={(tempo) => patchDoc((d) => { d.timing.tempo = tempo; })}
+        onTempoChange={(tempo) => updateDoc((d) => { d.timing.tempo = tempo; })}
         onPlay={handlePlay}
         onPause={handlePause}
         onStop={handleStop}
         onInsertLineBreak={insertLineBreak}
+        onInsertSpace={insertSpace}
+        onInsertSection={insertSection}
       />
 
-      <div
-        style={{
-          position: "sticky",
-          top: stickyTopOffset,
-          zIndex: 50,
-          background: "rgba(0,0,0,0.55)",
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-          border: "1px solid rgba(255,255,255,0.10)",
-          borderRadius: 14,
-          padding: 10,
-        }}
-      >
-        <PianoKeyboard
-          notes={notes}
-          labelMode={labelMode}
-          onNoteClick={(n) => void handleKeyboardNote(n)}
-          isEnabledNote={keyEnabled}
-          fitToWidth
-        />
-      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", width: "fit-content" }}>
+        <input type="checkbox" checked={showPiano} onChange={(e) => setShowPiano(e.target.checked)} />
+        Mostrar piano
+      </label>
+
+      {showPiano ? (
+        <div
+          style={{
+            position: "sticky",
+            top: stickyTopOffset,
+            zIndex: 50,
+            background: "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+            border: "1px solid rgba(255,255,255,0.10)",
+            borderRadius: 14,
+            padding: 10,
+          }}
+        >
+          <PianoKeyboard
+            notes={notes}
+            labelMode={labelMode}
+            onNoteClick={(n) => handleKeyboardNote(n)}
+            fitToWidth
+          />
+        </div>
+      ) : null}
+
+      <ConflictBanner
+        conflicts={playability.conflicts}
+        sameCellConflicts={playability.sameCellConflicts}
+        outOfRangeNotes={outOfRangeNotes}
+        composeTranspose={displayTranspose}
+        doc={doc}
+        labelMode={labelMode}
+        onJumpToConflict={handleJumpToConflict}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { SongDocV2, TimedEvent, TimedNote } from "@/lib/songDocV2";
+import { normalizeSongDocV2 } from "@/lib/songDocV2";
 
 export const DEFAULT_VOICE_PALETTE = [
   "#5b8def",
@@ -59,8 +60,5 @@ export function resolveVoiceIdForNewNote(doc: SongDocV2, activeVoiceId?: string)
 }
 
 export function docHasNotes(doc: SongDocV2): boolean {
-  for (const sec of Object.values(doc.sectionsById)) {
-    if (sec.events.some((e) => e.kind === "note")) return true;
-  }
-  return false;
+  return normalizeSongDocV2(doc).events.some((e) => e.kind === "note");
 }

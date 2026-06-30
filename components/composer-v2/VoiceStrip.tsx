@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import type { SongDocV2, VoiceDef } from "@/lib/songDocV2";
+import { patchSongDocV2 } from "@/lib/songDocV2";
 import { hasVoiceLayers } from "@/lib/songVoices";
 
 export default function VoiceStrip({
@@ -25,18 +26,12 @@ export default function VoiceStrip({
   const voices = doc.voices;
 
   function patchVoice(voiceId: string, patch: Partial<VoiceDef>) {
-    const next: SongDocV2 = {
-      ...doc,
-      timing: { ...doc.timing },
-      sectionsById: structuredClone(doc.sectionsById),
-      arrangement: doc.arrangement.map((x) => ({ ...x })),
-      voices: {
-        ...doc.voices!,
-        [voiceId]: { ...doc.voices![voiceId], ...patch },
-      },
-      importSource: doc.importSource,
-    };
-    onDocChange(next);
+    onDocChange(
+      patchSongDocV2(doc, (d) => {
+        if (!d.voices?.[voiceId]) return;
+        d.voices = { ...d.voices, [voiceId]: { ...d.voices[voiceId], ...patch } };
+      })
+    );
   }
 
   function startRename(voiceId: string, currentName: string) {

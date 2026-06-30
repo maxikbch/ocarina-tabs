@@ -6,6 +6,7 @@ import {
   type SongDocV2,
   type TimedEvent,
   type TimedNote,
+  normalizeSongDocV2,
 } from "@/lib/songDocV2";
 
 function isBreakToken(note: string): boolean {
@@ -56,10 +57,15 @@ export function migrateV1ToV2(doc: SongDoc, tempo?: number): SongDocV2 {
     sectionsById[id] = { id, name: sec.name, events };
   }
 
-  return {
+  return normalizeSongDocV2({
     version: 2,
     timing,
     sectionsById,
     arrangement: doc.arrangement.map((inst) => ({ ...inst })),
-  };
+    events: [],
+  });
+}
+
+export function migrateV1ToV2Normalized(doc: SongDoc, tempo?: number): SongDocV2 {
+  return normalizeSongDocV2(migrateV1ToV2(doc, tempo));
 }

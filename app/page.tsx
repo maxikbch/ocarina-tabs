@@ -12,7 +12,7 @@ import { getFingeringForNote, EMPTY, hasFingeringForNote } from "@/lib/fingering
 import { buildChromaticRange, shiftNote } from "@/lib/notes";
 import type { NoteLabelMode } from "@/lib/noteLabels";
 import { createEmptySongDoc, songDocFromStorage, type SongDoc } from "@/lib/songDoc";
-import { createEmptySongDocV2, docFingerprintV2, sortEventsByTick, type SongDocV2 } from "@/lib/songDocV2";
+import { createEmptySongDocV2, docFingerprintV2, normalizeSongDocV2, patchSongDocV2, type SongDocV2 } from "@/lib/songDocV2";
 import { migrateV1ToV2 } from "@/lib/songDocMigrate";
 import { flattenDocV2ForPlay, songDocV2ToSongDocV1 } from "@/lib/songDocV2Adapter";
 import { analyzePlayability } from "@/lib/songConflicts";
@@ -101,7 +101,7 @@ export default function Page() {
     }
     const d2 = loadDraftV2();
     if (d2) {
-      const hasAny = Object.values(d2.doc.sectionsById).some((s) => s.events.some((e) => e.kind === "note"));
+      const hasAny = normalizeSongDocV2(d2.doc).events.some((e) => e.kind === "note");
       if (d2.savedName || hasAny) setRecoveryDraftV2(d2);
       else clearDraftV2();
     }
@@ -183,11 +183,7 @@ export default function Page() {
   );
 
   const flatSongV2NoteCount = useMemo(() => {
-    let n = 0;
-    for (const sec of Object.values(docV2.sectionsById)) {
-      n += sec.events.filter((e) => e.kind === "note").length;
-    }
-    return n;
+    return normalizeSongDocV2(docV2).events.filter((e) => e.kind === "note").length;
   }, [docV2]);
 
   useEffect(() => {
@@ -284,17 +280,12 @@ export default function Page() {
 
     const useV2 = activeSongFormat === "v2" || (activeSongFormat === null && flatSongV2NoteCount > 0 && flatSong.events.length === 0);
     if (useV2) {
-      return docV2.arrangement
-        .map((inst) => {
-          const sec = docV2.sectionsById[inst.sectionId];
-          if (!sec) return null;
-          const sorted = sortEventsByTick(sec.events);
-          const events = sorted
-            .map((it) => byId.get(`${inst.id}:${it.id}`))
-            .filter(Boolean) as NoteEvent[];
-          return { instanceId: inst.id, name: sec.name, events };
-        })
-        .filter(Boolean) as Array<{ instanceId: string; name: string; events: NoteEvent[] }>;
+      const byId = new Map(displaySong.map((ev) => [ev.id, ev]));
+      return flatSongV2.playSections.map((sec) => ({
+        instanceId: sec.instanceId,
+        name: sec.name,
+        events: sec.events.map((e) => byId.get(e.id)).filter(Boolean) as NoteEvent[],
+      }));
     }
 
     return doc.arrangement
@@ -307,7 +298,7 @@ export default function Page() {
         return { instanceId: inst.id, name: sec.name, events };
       })
       .filter(Boolean) as Array<{ instanceId: string; name: string; events: NoteEvent[] }>;
-  }, [doc, docV2, displaySong, activeSongFormat, flatSongV2NoteCount, flatSong.events.length]);
+  }, [doc, flatSongV2.playSections, displaySong, activeSongFormat, flatSongV2NoteCount, flatSong.events.length]);
 
   function incTranspose() {
     setTranspose((t) => t + 1);
@@ -432,18 +423,11 @@ export default function Page() {
     if (activeSongFormat === "v2") {
       const ref = flatSongV2.idToRef[id];
       if (!ref) return;
-      setDocV2((cur) => {
-        const next: SongDocV2 = {
-          ...cur,
-          timing: { ...cur.timing },
-          sectionsById: structuredClone(cur.sectionsById),
-          arrangement: cur.arrangement.map((x) => ({ ...x })),
-        };
-        const sec = next.sectionsById[ref.sectionId];
-        if (!sec) return cur;
-        sec.events = sec.events.filter((x) => x.id !== ref.itemId);
-        return next;
-      });
+      setDocV2((cur) =>
+        patchSongDocV2(cur, (d) => {
+          d.events = d.events.filter((x) => x.id !== ref.itemId);
+        })
+      );
       setSelectedPlayId((cur) => (cur === id ? null : cur));
       return;
     }
@@ -1022,22 +1006,6 @@ export default function Page() {
               setCategories(listCategories());
             }}
             onOpenRename={() => setRenameOpen(true)}
-            onRenameSection={async (sectionId, currentName) => {
-              const next = await askPrompt("Renombrar sección", "Nombre", currentName);
-              if (!next) return;
-              setDocV2((cur) => {
-                const sec = cur.sectionsById[sectionId];
-                if (!sec) return cur;
-                const nextDoc: SongDocV2 = {
-                  ...cur,
-                  timing: { ...cur.timing },
-                  sectionsById: structuredClone(cur.sectionsById),
-                  arrangement: cur.arrangement.map((x) => ({ ...x })),
-                };
-                nextDoc.sectionsById[sectionId] = { ...sec, name: next.trim() || sec.name };
-                return nextDoc;
-              });
-            }}
           />
         ) : (
           <ComposeMode

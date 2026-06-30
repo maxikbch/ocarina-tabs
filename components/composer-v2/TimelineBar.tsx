@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { PIANO_ROLL_LABEL_WIDTH } from "@/lib/composerV2Layout";
 import { snapTickFloor, tickToBeatLabel } from "@/lib/songTiming";
 import type { SongDocV2, TimedEvent, Tick } from "@/lib/songDocV2";
-import { getSectionEndTick } from "@/lib/songDocV2";
+import { getSectionEndTick, isLayoutMarker, isLineBreakMarker, isSpaceMarker, normalizeSongDocV2 } from "@/lib/songDocV2";
+import { resolveSectionMarkers, sectionColorCss } from "@/lib/sectionMarkers";
 import type { SnapDivision } from "@/components/composer-v2/TransportBar";
 import { getSnapTicks } from "@/components/composer-v2/TransportBar";
 import type { TransportState } from "@/components/composer-v2/PianoRoll";
@@ -66,6 +67,25 @@ export default function TimelineBar({
     const end = getSectionEndTick(events);
     return Math.max(doc.timing.ppq * 8, end + doc.timing.ppq * 2);
   }, [events, doc.timing.ppq]);
+
+  const layoutMarkers = useMemo(() => {
+    const resolved = resolveSectionMarkers(normalizeSongDocV2(doc));
+    const out: Array<{ id: string; tick: number; kind: "section" | "line-break" | "space"; color?: string; name?: string }> = [];
+    for (const r of resolved) {
+      out.push({ id: r.id, tick: r.tick, kind: "section", color: sectionColorCss(r.color), name: r.name });
+    }
+    for (const ev of events) {
+      if (!isLayoutMarker(ev)) continue;
+      if (isLineBreakMarker(ev)) out.push({ id: ev.id, tick: ev.tick, kind: "line-break" });
+      else if (isSpaceMarker(ev)) out.push({ id: ev.id, tick: ev.tick, kind: "space" });
+      else if (ev.marker === "section") {
+        const idx = out.findIndex((m) => m.id === ev.id);
+        if (idx >= 0) out[idx] = { id: ev.id, tick: ev.tick, kind: "section", color: sectionColorCss(ev.color), name: ev.name };
+        else out.push({ id: ev.id, tick: ev.tick, kind: "section", color: sectionColorCss(ev.color), name: ev.name });
+      }
+    }
+    return out.sort((a, b) => a.tick - b.tick);
+  }, [doc, events]);
 
   const gridLines = useMemo(() => {
     const ppq = doc.timing.ppq;
@@ -219,6 +239,28 @@ export default function TimelineBar({
           >
             Tiempo
           </div>
+
+          {layoutMarkers.map((m) => (
+            <div
+              key={`tl-marker-${m.id}`}
+              style={{
+                position: "absolute",
+                left: PIANO_ROLL_LABEL_WIDTH + m.tick * pxPerTick,
+                top: 0,
+                bottom: 0,
+                width: m.kind === "section" ? 3 : 2,
+                borderLeft:
+                  m.kind === "space"
+                    ? "2px dashed rgba(255,255,255,0.75)"
+                    : m.kind === "section"
+                    ? `3px solid ${m.color}`
+                    : "2px solid rgba(255,255,255,0.85)",
+                pointerEvents: "none",
+                zIndex: 2,
+              }}
+              title={m.kind === "section" ? m.name : m.kind === "space" ? "Espacio" : "Salto de línea"}
+            />
+          ))}
 
           {gridLines.map((line) => (
             <div

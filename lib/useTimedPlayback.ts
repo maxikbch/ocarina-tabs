@@ -5,6 +5,7 @@ import Soundfont from "soundfont-player";
 import { shiftNote } from "@/lib/notes";
 import { secondsToTicks, ticksToSeconds } from "@/lib/songTiming";
 import type { SongDocV2, TimedNote, Tick } from "@/lib/songDocV2";
+import { normalizeSongDocV2 } from "@/lib/songDocV2";
 import type { NoteId } from "@/lib/types";
 import { getVisibleNotes } from "@/lib/songVoices";
 
@@ -144,15 +145,14 @@ export function useTimedPlayback(opts?: UseTimedPlaybackOptions) {
     []
   );
 
-  const playSectionFrom = useCallback(
-    async (doc: SongDocV2, sectionId: string, startTick: Tick, transpose: number = 0) => {
+  const playFrom = useCallback(
+    async (doc: SongDocV2, startTick: Tick, transpose: number = 0) => {
       const inst = instrumentRef.current;
       const ac = audioRef.current;
       if (!inst || !ac || !ready) return;
 
-      const sec = doc.sectionsById[sectionId];
-      if (!sec) return;
-      const notes = getVisibleNotes(sec.events, doc);
+      const normalized = normalizeSongDocV2(doc);
+      const notes = getVisibleNotes(normalized.events, normalized);
       if (notes.length === 0) return;
 
       haltAudio();
@@ -163,10 +163,10 @@ export function useTimedPlayback(opts?: UseTimedPlaybackOptions) {
       if (alignedStart >= endTick) return;
 
       const baseWhen = ac.currentTime + 0.05;
-      const playEnd = scheduleNotes(notes, doc, alignedStart, baseWhen, transpose);
+      const playEnd = scheduleNotes(notes, normalized, alignedStart, baseWhen, transpose);
 
       sessionRef.current = {
-        doc,
+        doc: normalized,
         startTick: alignedStart,
         endTick: playEnd,
         baseWhen,
@@ -211,7 +211,9 @@ export function useTimedPlayback(opts?: UseTimedPlaybackOptions) {
     ready,
     playing,
     paused,
-    playSectionFrom,
+    playFrom,
+    /** @deprecated */ playSectionFrom: (_doc: SongDocV2, _sectionId: string, startTick: Tick, transpose?: number) =>
+      playFrom(_doc, startTick, transpose),
     pause,
     stopAndReset,
     previewNote,

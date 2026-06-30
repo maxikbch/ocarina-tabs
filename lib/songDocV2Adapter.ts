@@ -1,20 +1,50 @@
 import { nanoid } from "nanoid";
 import { getFingeringForNote, EMPTY } from "@/lib/fingerings";
+import {
+  buildPlaySectionsFromTokens,
+  flattenSongLayoutTokens,
+  type LayoutTabToken,
+} from "@/lib/layoutSpaces";
 import type { Fingering, NoteEvent, NoteId } from "@/lib/types";
 import type { SongDoc, SongItem, SongSectionDef } from "@/lib/songDoc";
 import type { SongDocV2, TimedEvent } from "@/lib/songDocV2";
-import { sortEventsByTick, tickOf } from "@/lib/songDocV2";
+import { normalizeSongDocV2, tickOf } from "@/lib/songDocV2";
 import { getVisibleEvents, hasVoiceLayers } from "@/lib/songVoices";
 
-export function flattenSectionEvents(events: TimedEvent[]): string[] {
-  const sorted = sortEventsByTick(events);
+function fingeringSnapshot(note: NoteId): Fingering {
+  const baseF = getFingeringForNote(note, EMPTY);
+  return typeof structuredClone === "function" ? structuredClone(baseF) : { ...baseF };
+}
+
+function tokenToNoteEvent(token: LayoutTabToken, id: string): NoteEvent | null {
+  if (token.kind === "note") {
+    return { id, note: token.note as NoteId, fingering: fingeringSnapshot(token.note as NoteId) };
+  }
+  if (token.kind === "space") {
+    return { id, note: "—" as NoteId, fingering: fingeringSnapshot("C4" as NoteId) };
+  }
+  if (token.kind === "line-break") {
+    return { id, note: "⏎" as NoteId, fingering: fingeringSnapshot("C4" as NoteId) };
+  }
+  return null;
+}
+
+function tokenToFlatId(token: LayoutTabToken, autoSpaceIdx: number): string | null {
+  if (token.kind === "section") return null;
+  if (token.kind === "note" && token.sourceId) return token.sourceId;
+  if (token.kind === "line-break" && token.sourceId) return token.sourceId;
+  if (token.kind === "space" && token.sourceId) return token.sourceId;
+  if (token.kind === "space" && token.auto) return `auto-space:${autoSpaceIdx}`;
+  return null;
+}
+
+export function flattenSectionEvents(doc: Pick<SongDocV2, "events" | "timing" | "layout">): string[] {
+  const tokens = flattenSongLayoutTokens(doc);
   const out: string[] = [];
-  for (const ev of sorted) {
-    if (ev.kind === "marker" && ev.marker === "line-break") {
-      out.push("⏎");
-    } else if (ev.kind === "note") {
-      out.push(ev.note);
-    }
+  for (const token of tokens) {
+    if (token.kind === "note") out.push(token.note);
+    else if (token.kind === "space") out.push("—");
+    else if (token.kind === "line-break") out.push("⏎");
   }
   return out;
 }
@@ -22,61 +52,57 @@ export function flattenSectionEvents(events: TimedEvent[]): string[] {
 export type FlatSongV2 = {
   events: NoteEvent[];
   idToRef: Record<string, { sectionId: string; itemId: string }>;
+  playSections: ReturnType<typeof buildPlaySectionsFromTokens>;
 };
 
 export function flattenDocV2ForPlay(doc: SongDocV2, opts?: { visibleOnly?: boolean }): FlatSongV2 {
+  const normalized = normalizeSongDocV2(doc);
   const events: NoteEvent[] = [];
   const idToRef: Record<string, { sectionId: string; itemId: string }> = {};
-  const filterVisible = opts?.visibleOnly !== false && hasVoiceLayers(doc);
+  const filterVisible = opts?.visibleOnly !== false && hasVoiceLayers(normalized);
+  const rawEvents = filterVisible ? getVisibleEvents(normalized.events, normalized) : normalized.events;
+  const tokens = flattenSongLayoutTokens({ ...normalized, events: rawEvents });
 
-  for (const inst of doc.arrangement) {
-    const sec = doc.sectionsById[inst.sectionId];
-    if (!sec) continue;
+  let autoSpaceIdx = 0;
+  const bySourceId = new Map<string, NoteEvent>();
 
-    const rawEvents = filterVisible ? getVisibleEvents(sec.events, doc) : sec.events;
-    const sorted = sortEventsByTick(rawEvents);
-    for (const ev of sorted) {
-      if (ev.kind === "marker" && ev.marker === "line-break") {
-        const id = `${inst.id}:${ev.id}`;
-        idToRef[id] = { sectionId: sec.id, itemId: ev.id };
-        const baseF = getFingeringForNote("C4" as NoteId, EMPTY);
-        const snapshot: Fingering =
-          typeof structuredClone === "function" ? structuredClone(baseF) : { ...baseF };
-        events.push({ id, note: "⏎" as NoteId, fingering: snapshot });
-      } else if (ev.kind === "note") {
-        const id = `${inst.id}:${ev.id}`;
-        idToRef[id] = { sectionId: sec.id, itemId: ev.id };
-        const baseF = getFingeringForNote(ev.note as NoteId, EMPTY);
-        const snapshot: Fingering =
-          typeof structuredClone === "function" ? structuredClone(baseF) : { ...baseF };
-        events.push({ id, note: ev.note as NoteId, fingering: snapshot });
-      }
-    }
+  for (const token of tokens) {
+    const id = tokenToFlatId(token, autoSpaceIdx);
+    if (token.kind === "space" && token.auto) autoSpaceIdx++;
+    if (!id) continue;
+
+    const ev = tokenToNoteEvent(token, id);
+    if (!ev) continue;
+    idToRef[id] = { sectionId: "song", itemId: id };
+    events.push(ev);
+    bySourceId.set(id, ev);
   }
 
-  return { events, idToRef };
+  const playSections = buildPlaySectionsFromTokens(tokens, bySourceId);
+
+  return { events, idToRef, playSections };
 }
 
 export function songDocV2ToSongDocV1(doc: SongDocV2): SongDoc {
-  const sectionsById: Record<string, SongSectionDef> = {};
-
-  for (const [id, sec] of Object.entries(doc.sectionsById)) {
-    const items: SongItem[] = [];
-    const sorted = sortEventsByTick(sec.events);
-    for (const ev of sorted) {
-      if (ev.kind === "marker" && ev.marker === "line-break") {
-        items.push({ id: ev.id, note: "⏎" });
-      } else if (ev.kind === "note") {
-        items.push({ id: ev.id, note: ev.note });
-      }
+  const normalized = normalizeSongDocV2(doc);
+  const items: SongItem[] = [];
+  const tokens = flattenSongLayoutTokens(normalized);
+  for (const token of tokens) {
+    if (token.kind === "line-break") {
+      items.push({ id: token.sourceId ?? nanoid(), note: "⏎" });
+    } else if (token.kind === "space") {
+      items.push({ id: token.sourceId ?? nanoid(), note: "—" });
+    } else if (token.kind === "note") {
+      items.push({ id: token.sourceId ?? nanoid(), note: token.note });
     }
-    sectionsById[id] = { id, name: sec.name, items };
   }
 
+  const sectionId = nanoid();
+  const instanceId = nanoid();
   return {
     version: 1,
-    sectionsById,
-    arrangement: doc.arrangement.map((inst) => ({ ...inst })),
+    sectionsById: { [sectionId]: { id: sectionId, name: "General", items } },
+    arrangement: [{ id: instanceId, sectionId }],
   };
 }
 

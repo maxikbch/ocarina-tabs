@@ -7,11 +7,13 @@ import { displayToStored, isNoteOutOfRangeOnRoll, storedToDisplay } from "@/lib/
 import type { NoteLabelMode } from "@/lib/noteLabels";
 import { getConflictingNoteIds, getSameCellNoteIds } from "@/lib/songConflicts";
 import { defaultNoteDuration, snapTickFloor, tickToBeatLabel, ticksToSeconds } from "@/lib/songTiming";
-import type { LayoutMarker, SongDocV2, TimedEvent, TimedNote } from "@/lib/songDocV2";
-import { getSectionEndTick } from "@/lib/songDocV2";
+import type { SongDocV2, SectionColorIndex, TimedEvent, TimedNote } from "@/lib/songDocV2";
+import { getSectionEndTick, isLayoutMarker, isSectionMarker, normalizeSongDocV2, patchSongDocV2 } from "@/lib/songDocV2";
 import type { NoteId } from "@/lib/types";
 import { isVoiceVisible, resolveVoiceIdForNewNote, voiceColor as getVoiceColor } from "@/lib/songVoices";
-import PianoRollMarker from "@/components/composer-v2/PianoRollMarker";
+import PianoRollMarker, { type RollMarkerDisplay } from "@/components/composer-v2/PianoRollMarker";
+import SectionEditModal from "@/components/composer-v2/SectionEditModal";
+import { IMPLICIT_INTRO_MARKER_ID, resolveSectionMarkers } from "@/lib/sectionMarkers";
 import PianoRollNote from "@/components/composer-v2/PianoRollNote";
 import type { SnapDivision } from "@/components/composer-v2/TransportBar";
 import { getSnapTicks } from "@/components/composer-v2/TransportBar";
@@ -22,6 +24,9 @@ const DEFAULT_ROW_HEIGHT = 28;
 const MIN_ROW_HEIGHT = 14;
 const MAX_ROW_HEIGHT = 48;
 const RULER_HEIGHT = 26;
+const SECTION_LABEL_PAD = 10;
+const SECTION_LABEL_MIN_EXTENT = 48;
+const SECTION_LABEL_MAX_EXTENT = 140;
 const MIN_PX_PER_TICK = 0.08;
 const MAX_PX_PER_TICK = 0.5;
 const DEFAULT_PX_PER_TICK = 0.15;
@@ -82,10 +87,40 @@ function rectsOverlap(
   return a0 < b1 && b0 < a1;
 }
 
+function sectionLabelExtent(name: string): number {
+  return Math.min(SECTION_LABEL_MAX_EXTENT, Math.max(SECTION_LABEL_MIN_EXTENT, name.length * 11));
+}
+
+function sectionLabelTop(
+  rollHeight: number,
+  viewportScrollTop: number,
+  viewportHeight: number,
+  labelExtent: number
+): number {
+  const visibleTop = viewportScrollTop - RULER_HEIGHT;
+  const visibleBottom = viewportScrollTop + viewportHeight - RULER_HEIGHT;
+  const minTop = SECTION_LABEL_PAD;
+  const maxTop = Math.max(minTop, rollHeight - labelExtent - SECTION_LABEL_PAD);
+
+  if (visibleBottom <= 0 || visibleTop >= rollHeight) return minTop;
+
+  let top = visibleTop + SECTION_LABEL_PAD;
+  top = Math.max(minTop, Math.min(maxTop, top));
+
+  const visTop = Math.max(visibleTop, 0);
+  const visBottom = Math.min(visibleBottom, rollHeight);
+  const visH = visBottom - visTop;
+  if (visH < labelExtent + SECTION_LABEL_PAD * 2) {
+    const center = visTop + visH / 2 - labelExtent / 2;
+    top = Math.max(minTop, Math.min(maxTop, center));
+  }
+
+  return top;
+}
+
 export default function PianoRoll({
   notes,
   doc,
-  sectionId,
   labelMode,
   transpose,
   snap,
@@ -107,7 +142,6 @@ export default function PianoRoll({
 }: {
   notes: string[];
   doc: SongDocV2;
-  sectionId: string;
   labelMode: NoteLabelMode;
   transpose: number;
   snap: SnapDivision;
@@ -139,10 +173,17 @@ export default function PianoRoll({
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const [playheadDragging, setPlayheadDragging] = useState(false);
   const [panning, setPanning] = useState<PanState | null>(null);
+  const [viewportScrollTop, setViewportScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(420);
+  const [sectionEdit, setSectionEdit] = useState<{
+    markerId: string;
+    name: string;
+    color: SectionColorIndex;
+  } | null>(null);
   const scrollSyncRef = useRef(false);
 
-  const sec = doc.sectionsById[sectionId];
-  const events = sec?.events ?? [];
+  const normalizedDoc = useMemo(() => normalizeSongDocV2(doc), [doc]);
+  const events = normalizedDoc.events;
   const snapDiv = getSnapTicks(doc, snap);
   const conflictIds = useMemo(() => getConflictingNoteIds(doc), [doc]);
   const sameCellIds = useMemo(() => getSameCellNoteIds(doc), [doc]);
@@ -164,6 +205,27 @@ export default function PianoRoll({
   }, [events, doc.timing.ppq, pxPerTick]);
 
   const contentHeight = RULER_HEIGHT + notes.length * rowHeight;
+  const rollHeight = contentHeight - RULER_HEIGHT;
+
+  const syncViewportScroll = useCallback(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    setViewportScrollTop(vp.scrollTop);
+    setViewportHeight(vp.clientHeight);
+  }, []);
+
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    syncViewportScroll();
+    vp.addEventListener("scroll", syncViewportScroll);
+    const ro = new ResizeObserver(syncViewportScroll);
+    ro.observe(vp);
+    return () => {
+      vp.removeEventListener("scroll", syncViewportScroll);
+      ro.disconnect();
+    };
+  }, [syncViewportScroll]);
 
   const soundingNoteIds = useMemo(() => {
     if (transportState !== "playing") return new Set<string>();
@@ -284,19 +346,55 @@ export default function PianoRoll({
     centerPlayableRowsRef.current();
   }, [scrollToPlayableRequest]);
 
+  const rollMarkers = useMemo((): RollMarkerDisplay[] => {
+    const out: RollMarkerDisplay[] = [];
+    for (const r of resolveSectionMarkers(normalizedDoc)) {
+      if (r.implicit) {
+        out.push({
+          kind: "marker",
+          id: r.id,
+          tick: r.tick,
+          marker: "section",
+          name: r.name,
+          color: r.color,
+          implicit: true,
+        });
+      }
+    }
+    for (const ev of events) {
+      if (isLayoutMarker(ev)) out.push(ev);
+    }
+    return out.sort((a, b) => a.tick - b.tick || a.id.localeCompare(b.id));
+  }, [normalizedDoc, events]);
+
   function patchEvents(mut: (events: TimedEvent[]) => TimedEvent[]) {
-    if (!sec) return;
-    const next: SongDocV2 = {
-      ...doc,
-      timing: { ...doc.timing },
-      sectionsById: structuredClone(doc.sectionsById),
-      arrangement: doc.arrangement.map((x) => ({ ...x })),
-    };
-    next.sectionsById[sectionId] = {
-      ...next.sectionsById[sectionId],
-      events: mut([...next.sectionsById[sectionId].events]),
-    };
-    onDocChange(next);
+    onDocChange(
+      patchSongDocV2(doc, (d) => {
+        d.events = mut([...d.events]);
+      })
+    );
+  }
+
+  function openSectionEdit(markerId: string, name: string, color: SectionColorIndex) {
+    setSectionEdit({ markerId, name, color });
+  }
+
+  function saveSectionEdit(name: string, color: SectionColorIndex) {
+    if (!sectionEdit) return;
+    const { markerId } = sectionEdit;
+    setSectionEdit(null);
+    if (markerId === IMPLICIT_INTRO_MARKER_ID) {
+      onDocChange(
+        patchSongDocV2(doc, (d) => {
+          const intro = d.layout?.implicitIntro ?? { name, color };
+          d.layout = { ...d.layout, implicitIntro: { name, color } };
+        })
+      );
+      return;
+    }
+    patchEvents((evs) =>
+      evs.map((ev) => (isSectionMarker(ev) && ev.id === markerId ? { ...ev, name, color } : ev))
+    );
   }
 
   const rawTickFromClientX = useCallback(
@@ -495,6 +593,7 @@ export default function PianoRoll({
   }
 
   function handleEventPointerDown(eventId: string, e: React.MouseEvent) {
+    if (e.button === 2) return;
     e.stopPropagation();
     suppressClearRef.current = true;
     setPendingPointer({ eventId, x: e.clientX, y: e.clientY, shiftKey: e.shiftKey });
@@ -509,6 +608,9 @@ export default function PianoRoll({
     if (e.button !== 2 || !viewportRef.current) return;
     e.preventDefault();
     suppressClearRef.current = true;
+    setPendingPointer(null);
+    setPendingEmpty(null);
+    setMarquee(null);
     setPanning({
       startX: e.clientX,
       startY: e.clientY,
@@ -695,6 +797,7 @@ export default function PianoRoll({
       vp.scrollLeft = left;
       vp.scrollTop = top;
       onViewportScroll?.(left);
+      syncViewportScroll();
     };
     const onUp = () => {
       setPanning(null);
@@ -708,7 +811,7 @@ export default function PianoRoll({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [panning, onViewportScroll]);
+  }, [panning, onViewportScroll, syncViewportScroll]);
 
   useEffect(() => {
     const vp = viewportRef.current;
@@ -735,6 +838,7 @@ export default function PianoRoll({
   }
 
   return (
+    <>
     <div
       ref={viewportRef}
       className="composer-v2-pan-viewport"
@@ -751,6 +855,7 @@ export default function PianoRoll({
         if (e.button !== 2) handleBackgroundPointerDown(e);
       }}
       onContextMenu={(e) => e.preventDefault()}
+      onScroll={syncViewportScroll}
     >
       <div style={{ width: contentWidth, height: contentHeight, position: "relative" }}>
         {marquee ? (
@@ -926,25 +1031,38 @@ export default function PianoRoll({
           );
         })}
 
-        {events
-          .filter((e): e is LayoutMarker => e.kind === "marker")
-          .map((m) => {
+        {rollMarkers.map((m) => {
             const preview = dragPreview?.get(m.id);
             const tick = preview?.start ?? m.tick;
+            const selected = selectedEventIds.has(m.id);
+            const isSection = m.marker === "section";
+            const labelExtent = isSection ? sectionLabelExtent(m.name) : 0;
+            const labelTop =
+              isSection && rollHeight > 0
+                ? sectionLabelTop(rollHeight, viewportScrollTop, viewportHeight, labelExtent)
+                : 0;
             return (
               <div
                 key={m.id}
                 data-roll-marker="1"
                 style={{ position: "absolute", top: RULER_HEIGHT, left: 0, right: 0, bottom: 0, pointerEvents: "none" }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
               >
                 <PianoRollMarker
                   marker={m}
                   left={LABEL_WIDTH + tick * pxPerTick}
-                  height={contentHeight - RULER_HEIGHT}
-                  selected={selectedEventIds.has(m.id)}
-                  onPointerDown={(e) => handleEventPointerDown(m.id, e)}
+                  height={rollHeight}
+                  selected={selected}
+                  sectionLabelTop={isSection ? labelTop : undefined}
+                  onPointerDown={(e) => {
+                    if (m.marker === "section" && "implicit" in m && m.implicit) {
+                      handleEventPointerDown(m.id, e);
+                      return;
+                    }
+                    handleEventPointerDown(m.id, e);
+                  }}
+                  onDoubleClick={() => {
+                    if (m.marker === "section") openSectionEdit(m.id, m.name, m.color);
+                  }}
                 />
               </div>
             );
@@ -968,7 +1086,10 @@ export default function PianoRoll({
                 key={note.id}
                 data-roll-note="1"
                 style={{ pointerEvents: "auto" }}
-                onMouseDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => {
+                  if (e.button === 2) return;
+                  e.stopPropagation();
+                }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <PianoRollNote
@@ -986,6 +1107,7 @@ export default function PianoRoll({
                   labelMode={labelMode}
                   onPointerDown={(e) => handleEventPointerDown(note.id, e)}
                   onResizeStart={(e) => {
+                    if (e.button === 2) return;
                     e.stopPropagation();
                     suppressClearRef.current = true;
                     const t = tickFromClientX(e.clientX);
@@ -1001,6 +1123,14 @@ export default function PianoRoll({
           })}
       </div>
     </div>
+    <SectionEditModal
+      open={!!sectionEdit}
+      initialName={sectionEdit?.name ?? ""}
+      initialColor={sectionEdit?.color ?? 0}
+      onCancel={() => setSectionEdit(null)}
+      onSave={saveSectionEdit}
+    />
+    </>
   );
 }
 

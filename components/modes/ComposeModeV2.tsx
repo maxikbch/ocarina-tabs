@@ -31,7 +31,6 @@ export default function ComposeModeV2({
   onOpenPicker,
   onDeleteSaved,
   onOpenRename,
-  onRenameSection,
   stickyTopOffset = 12,
 }: {
   notes: string[];
@@ -50,7 +49,6 @@ export default function ComposeModeV2({
   onOpenPicker: () => void;
   onDeleteSaved: () => void | Promise<void>;
   onOpenRename: () => void;
-  onRenameSection: (sectionId: string, currentName: string) => void;
   stickyTopOffset?: number;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -255,7 +253,6 @@ export default function ComposeModeV2({
         onTransposeInc={onTransposeInc}
         onPreviewNote={onPreviewNote}
         stickyTopOffset={stickyTopOffset}
-        onRenameSection={onRenameSection}
       />
     </section>
   );

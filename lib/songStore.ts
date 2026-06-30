@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 import { songDocFromStorage, songDocToStorage, type SongDoc } from "@/lib/songDoc";
 import { migrateV1ToV2 } from "@/lib/songDocMigrate";
 import { flattenDocV2ForPlay } from "@/lib/songDocV2Adapter";
-import { createEmptySongDocV2, docFingerprintV2, type SongDocV2 } from "@/lib/songDocV2";
+import { createEmptySongDocV2, docFingerprintV2, normalizeSongDocV2, type SongDocV2 } from "@/lib/songDocV2";
 
 const LS_KEY_V7 = "ocarina.songs.v7";
 const LS_KEY_V6 = "ocarina.songs.v6";
@@ -279,7 +279,7 @@ export function saveSongDocV2(
 export function loadSongDocV2(name: string): SongDocV2 | null {
   const entry = readStoreV7()[name];
   if (!entry?.doc) return null;
-  return entry.doc;
+  return normalizeSongDocV2(entry.doc);
 }
 
 export function getSongTransposeV2(name: string): number {

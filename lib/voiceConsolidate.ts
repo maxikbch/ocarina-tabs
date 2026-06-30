@@ -1,5 +1,6 @@
 import { overlaps } from "@/lib/songConflicts";
 import type { SongDocV2, TimedEvent, TimedNote } from "@/lib/songDocV2";
+import { normalizeSongDocV2 } from "@/lib/songDocV2";
 import { getVisibleNotes, hasVoiceLayers, isVoiceVisible } from "@/lib/songVoices";
 
 export type ConsolidatePreview = {
@@ -10,13 +11,7 @@ export type ConsolidatePreview = {
 };
 
 function collectNotes(doc: SongDocV2): TimedNote[] {
-  const out: TimedNote[] = [];
-  for (const sec of Object.values(doc.sectionsById)) {
-    for (const ev of sec.events) {
-      if (ev.kind === "note") out.push(ev);
-    }
-  }
-  return out;
+  return normalizeSongDocV2(doc).events.filter((ev): ev is TimedNote => ev.kind === "note");
 }
 
 function countCrossVoiceOverlaps(notes: TimedNote[]): number {
@@ -68,67 +63,33 @@ function stripVoiceIdFromEvents(events: TimedEvent[]): TimedEvent[] {
 }
 
 export function consolidateVisibleVoices(doc: SongDocV2): SongDocV2 {
-  const sectionsById: SongDocV2["sectionsById"] = {};
+  const normalized = normalizeSongDocV2(doc);
+  const kept = normalized.events.filter((ev) => {
+    if (ev.kind !== "note") return true;
+    return isVoiceVisible(doc, ev.voiceId);
+  });
 
-  for (const [id, sec] of Object.entries(doc.sectionsById)) {
-    const kept = sec.events.filter((ev) => {
-      if (ev.kind !== "note") return true;
-      return isVoiceVisible(doc, ev.voiceId);
-    });
-    sectionsById[id] = {
-      ...sec,
-      events: stripVoiceIdFromEvents(kept),
-    };
-  }
-
-  const { voices: _voices, importSource: _importSource, ...rest } = doc;
-  return { ...rest, sectionsById };
+  const { voices: _voices, importSource: _importSource, ...rest } = normalized;
+  return { ...rest, events: stripVoiceIdFromEvents(kept) };
 }
 
 export function buildConsolidateConfirmMessage(preview: ConsolidatePreview): string {
   const lines: string[] = [
     "Esta acción es irreversible: las capas de voces no se pueden recuperar.",
     "",
-    `Voces visibles que se fusionarán (${preview.visibleVoiceNames.length}):`,
-    preview.visibleVoiceNames.length > 0
-      ? preview.visibleVoiceNames.map((n) => `• ${n}`).join("\n")
-      : "• (ninguna)",
+    `Voces visibles que quedarán: ${preview.visibleVoiceNames.join(", ") || "(ninguna)"}.`,
   ];
-
   if (preview.hiddenVoiceCount > 0) {
-    lines.push(
-      "",
-      `Se descartarán ${preview.hiddenVoiceCount} voz/voces oculta(s) y ${preview.hiddenNoteCount} nota(s) asociada(s).`
-    );
+    lines.push(`Se descartarán ${preview.hiddenVoiceCount} voz(es) oculta(s) y ${preview.hiddenNoteCount} nota(s).`);
   }
-
   if (preview.crossVoiceOverlapCount > 0) {
     lines.push(
-      "",
-      `Hay ${preview.crossVoiceOverlapCount} solapamiento(s) temporal(es) entre voces visibles. Tras consolidar quedarán conflictos (naranja) hasta resolverlos manualmente.`
+      `Tras consolidar puede haber ${preview.crossVoiceOverlapCount} solapamiento(s) entre notas de distintas voces visibles.`
     );
   }
-
-  lines.push("", "¿Consolidar en un arreglo monofónico?");
   return lines.join("\n");
 }
 
-export function docUsesVoiceLayers(doc: SongDocV2): boolean {
-  return hasVoiceLayers(doc);
-}
-
-export function visibleNotesForPlay(doc: SongDocV2, events: TimedEvent[]): TimedEvent[] {
-  if (!hasVoiceLayers(doc)) return events;
-  return events.filter((ev) => {
-    if (ev.kind !== "note") return true;
-    return isVoiceVisible(doc, ev.voiceId);
-  });
-}
-
-export function getAllVisibleNotes(doc: SongDocV2): TimedNote[] {
-  const out: TimedNote[] = [];
-  for (const sec of Object.values(doc.sectionsById)) {
-    out.push(...getVisibleNotes(sec.events, doc));
-  }
-  return out;
+export function countNotesInDoc(doc: SongDocV2): number {
+  return collectNotes(doc).length;
 }

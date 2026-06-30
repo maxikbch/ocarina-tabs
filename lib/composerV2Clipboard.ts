@@ -43,6 +43,17 @@ export function buildTimelineClipboardPayload(
         ...(ev.voiceId ? { voiceId: ev.voiceId } : {}),
       };
     }
+    if (ev.marker === "section") {
+      return {
+        kind: "marker",
+        id: "",
+        tick: ev.tick,
+        marker: "section",
+        name: ev.name,
+        color: ev.color,
+        placedManually: ev.placedManually,
+      };
+    }
     return { kind: "marker", id: "", tick: ev.tick, marker: ev.marker };
   });
 
@@ -85,9 +96,24 @@ export function parseTimelineClipboardPayload(text: string): TimelineClipboardDa
         duration: ev.duration,
         ...(typeof ev.voiceId === "string" ? { voiceId: ev.voiceId } : {}),
       });
-    } else if (ev.kind === "marker" && ev.marker === "line-break") {
-      if (typeof ev.tick !== "number") return null;
-      events.push({ kind: "marker", id: "", tick: ev.tick, marker: "line-break" });
+    } else if (ev.kind === "marker") {
+      if (typeof ev.tick !== "number" || typeof ev.marker !== "string") return null;
+      if (ev.marker === "section") {
+        if (typeof ev.name !== "string" || typeof ev.color !== "number") return null;
+        events.push({
+          kind: "marker",
+          id: "",
+          tick: ev.tick,
+          marker: "section",
+          name: ev.name,
+          color: ev.color as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+          placedManually: !!ev.placedManually,
+        });
+      } else if (ev.marker === "line-break" || ev.marker === "space") {
+        events.push({ kind: "marker", id: "", tick: ev.tick, marker: ev.marker });
+      } else {
+        return null;
+      }
     } else {
       return null;
     }

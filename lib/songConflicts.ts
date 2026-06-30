@@ -1,6 +1,7 @@
 import { hasFingeringForNote } from "@/lib/fingerings";
 import type { NoteId } from "@/lib/types";
 import type { SongDocV2, TimedEvent, TimedNote } from "@/lib/songDocV2";
+import { normalizeSongDocV2, SONG_TIMELINE_ID } from "@/lib/songDocV2";
 import { getVisibleEvents, hasVoiceLayers } from "@/lib/songVoices";
 
 export type ConflictGroup = {
@@ -115,23 +116,15 @@ export function analyzePlayability(
   doc: SongDocV2,
   opts?: { visibleOnly?: boolean }
 ): SongPlayability {
-  const conflicts: ConflictGroup[] = [];
-  const sameCellConflicts: SameCellConflict[] = [];
-  const invalidNotes: InvalidNoteRef[] = [];
-  const filterVisible = opts?.visibleOnly && hasVoiceLayers(doc);
-
-  for (const sec of Object.values(doc.sectionsById)) {
-    const events = filterVisible ? getVisibleEvents(sec.events, doc) : sec.events;
-    conflicts.push(...findConflictsInSection(sec.id, events));
-    sameCellConflicts.push(...findSameCellConflictsInSection(sec.id, events));
-    invalidNotes.push(...findInvalidNotesInSection(sec.id, events));
-  }
+  const normalized = normalizeSongDocV2(doc);
+  const filterVisible = opts?.visibleOnly && hasVoiceLayers(normalized);
+  const events = filterVisible ? getVisibleEvents(normalized.events, normalized) : normalized.events;
 
   return {
-    playable: conflicts.length === 0,
-    conflicts,
-    sameCellConflicts,
-    invalidNotes,
+    playable: findConflictsInSection(SONG_TIMELINE_ID, events).length === 0,
+    conflicts: findConflictsInSection(SONG_TIMELINE_ID, events),
+    sameCellConflicts: findSameCellConflictsInSection(SONG_TIMELINE_ID, events),
+    invalidNotes: findInvalidNotesInSection(SONG_TIMELINE_ID, events),
   };
 }
 
