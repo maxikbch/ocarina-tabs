@@ -6,9 +6,9 @@ import { snapTickFloor, tickToBeatLabel } from "@/lib/songTiming";
 import type { SongDocV2, TimedEvent, Tick } from "@/lib/songDocV2";
 import { getSectionEndTick, isLayoutMarker, isLineBreakMarker, isSpaceMarker, normalizeSongDocV2 } from "@/lib/songDocV2";
 import { resolveSectionMarkers, sectionColorCss } from "@/lib/sectionMarkers";
-import type { SnapDivision } from "@/components/composer-v2/TransportBar";
-import { getSnapTicks } from "@/components/composer-v2/TransportBar";
-import type { TransportState } from "@/components/composer-v2/PianoRoll";
+import type { SnapDivision } from "@/components/composer/TransportBar";
+import { getSnapTicks } from "@/components/composer/TransportBar";
+import type { TransportState } from "@/components/composer/PianoRoll";
 
 const TIMELINE_HEIGHT = 32;
 
@@ -199,7 +199,7 @@ export default function TimelineBar({
     >
       <div
         ref={scrollRef}
-        className="composer-v2-pan-viewport"
+        className="composer-pan-viewport"
         onScroll={handleScroll}
         onMouseDown={handlePanStart}
         onContextMenu={(e) => e.preventDefault()}

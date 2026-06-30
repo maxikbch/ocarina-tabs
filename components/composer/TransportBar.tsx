@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import ToggleSwitch from "@/components/ToggleSwitch";
 import { eighthDivision, quarterDivision, sixteenthDivision, tickToBeatLabel, ticksToSeconds } from "@/lib/songTiming";
 import type { SongDocV2, Tick } from "@/lib/songDocV2";
 
@@ -12,7 +13,6 @@ export default function TransportBar({
   paused,
   playheadTick,
   onSnapChange,
-  onTempoChange,
   onPlay,
   onPause,
   onStop,
@@ -29,7 +29,6 @@ export default function TransportBar({
   playheadTick: Tick;
   snap: SnapDivision;
   onSnapChange: (snap: SnapDivision) => void;
-  onTempoChange: (tempo: number) => void;
   onPlay: () => void;
   onPause: () => void;
   onStop: () => void;
@@ -135,32 +134,12 @@ export default function TransportBar({
       <button onClick={onInsertSection} style={btnStyle} title="Insertar marcador de sección en el cursor (doble clic para renombrar)">
         § Sección
       </button>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-        <input
-          type="checkbox"
-          checked={autoSpacesEnabled}
-          onChange={(e) => onAutoSpacesEnabledChange(e.target.checked)}
-        />
-        Espacios automáticos
-      </label>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-        BPM
-        <input
-          type="number"
-          min={40}
-          max={240}
-          value={doc.timing.tempo}
-          onChange={(e) => onTempoChange(Math.max(40, Math.min(240, Number(e.target.value) || 120)))}
-          style={{
-            width: 56,
-            padding: "6px 8px",
-            borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.2)",
-            background: "#1a1a1a",
-            color: "#eaeaea",
-          }}
-        />
-      </label>
+      <ToggleSwitch
+        checked={autoSpacesEnabled}
+        onChange={onAutoSpacesEnabledChange}
+        label="Espacios automáticos"
+        fontSize={13}
+      />
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
         Snap
         <select

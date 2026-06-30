@@ -34,29 +34,14 @@ export function matchesAnyKeyBinding(e: KeyboardEvent, bindings: KeyBinding[]): 
   return bindings.some((b) => matchesKeyBinding(e, b));
 }
 
-/** Atajos del modo Componer. */
-export const COMPOSER_KEY_BINDINGS = {
-  clearSelection: { key: "Escape" },
-  delete: [
-    { key: "Delete" },
-    { key: "Backspace" },
-  ] as KeyBinding[],
-  copy: { key: "c", ctrlOrMeta: true },
-  cut: { key: "x", ctrlOrMeta: true },
-  paste: { key: "v", ctrlOrMeta: true },
-  createSection: { key: "a", ctrlOrMeta: true },
-  duplicateSection: { key: "d", ctrlOrMeta: true, shift: false },
-  replicateSection: { key: "D", ctrlOrMeta: true, shift: true },
-} as const;
-
 /** Atajos del modo Tocar (navegación entre secciones). */
 export const PLAY_MODE_KEY_BINDINGS = {
   prevSection: { key: "ArrowLeft" },
   nextSection: { key: "ArrowRight" },
 } as const;
 
-/** Atajos del compositor β (línea de tiempo). */
-export const COMPOSER_V2_KEY_BINDINGS = {
+/** Atajos del compositor (línea de tiempo). */
+export const COMPOSER_KEY_BINDINGS = {
   clearSelection: { key: "Escape" },
   delete: [
     { key: "Delete" },

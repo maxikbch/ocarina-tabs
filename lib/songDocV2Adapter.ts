@@ -1,4 +1,3 @@
-import { nanoid } from "nanoid";
 import { getFingeringForNote, EMPTY } from "@/lib/fingerings";
 import {
   buildPlaySectionsFromTokens,
@@ -7,7 +6,6 @@ import {
   type LayoutTabToken,
 } from "@/lib/layoutSpaces";
 import type { Fingering, NoteEvent, NoteId } from "@/lib/types";
-import type { SongDoc, SongItem, SongSectionDef } from "@/lib/songDoc";
 import type { SongDocV2, TimedEvent } from "@/lib/songDocV2";
 import { normalizeSongDocV2, tickOf } from "@/lib/songDocV2";
 import { getVisibleEvents, hasVoiceLayers } from "@/lib/songVoices";
@@ -78,29 +76,6 @@ export function flattenDocV2ForPlay(doc: SongDocV2, opts?: { visibleOnly?: boole
   const playSections = buildPlaySectionsFromTokens(tokens, bySourceId);
 
   return { events, idToRef, playSections };
-}
-
-export function songDocV2ToSongDocV1(doc: SongDocV2): SongDoc {
-  const normalized = normalizeSongDocV2(doc);
-  const items: SongItem[] = [];
-  const tokens = flattenSongLayoutTokens(normalized);
-  for (const token of tokens) {
-    if (token.kind === "line-break") {
-      items.push({ id: token.sourceId ?? nanoid(), note: "⏎" });
-    } else if (token.kind === "space") {
-      items.push({ id: token.sourceId ?? nanoid(), note: "—" });
-    } else if (token.kind === "note") {
-      items.push({ id: token.sourceId ?? nanoid(), note: token.note });
-    }
-  }
-
-  const sectionId = nanoid();
-  const instanceId = nanoid();
-  return {
-    version: 1,
-    sectionsById: { [sectionId]: { id: sectionId, name: "General", items } },
-    arrangement: [{ id: instanceId, sectionId }],
-  };
 }
 
 export function getTimedNotesInSection(events: TimedEvent[]) {

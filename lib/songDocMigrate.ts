@@ -38,7 +38,13 @@ export function migrateV1ToV2(doc: SongDoc, tempo?: number): SongDocV2 {
         };
         events.push(marker);
       } else if (isSpaceToken(item.note)) {
-        continue;
+        const marker: LayoutMarker = {
+          kind: "marker",
+          id: nanoid(),
+          tick,
+          marker: "space",
+        };
+        events.push(marker);
       } else if (isSpecialToken(item.note)) {
         continue;
       } else {

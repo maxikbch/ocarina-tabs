@@ -44,7 +44,7 @@ export const PIANO_ROLL_RANGE = { from: "C2", to: "C7" } as const;
 
 const PIANO_ROLL_PAD_SEMITONES = 12;
 
-/** Grilla del compositor β: rango base + notas de la canción con margen. */
+/** Grilla del compositor: rango base + notas de la canción con margen. */
 export function buildPianoRollNotes(displayNotes: string[] = []): string[] {
   let min = toIndex(PIANO_ROLL_RANGE.from);
   let max = toIndex(PIANO_ROLL_RANGE.to);

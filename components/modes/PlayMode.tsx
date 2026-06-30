@@ -212,7 +212,7 @@ export default function PlayMode({
           viewMode="tabs"
           emptyText={
             playBlocked
-              ? "Corrige los conflictos en Componer β para ver la canción aquí"
+              ? "Corrige los conflictos en Componer para ver la canción aquí"
               : "Selecciona una cancion o crea una nueva en el modo componer"
           }
           editable={false}

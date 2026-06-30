@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PianoKeyboard from "@/components/PianoKeyboard";
-import ConflictBanner from "@/components/composer-v2/ConflictBanner";
+import ConflictBanner from "@/components/composer/ConflictBanner";
 import PianoRoll, {
   DEFAULT_PX_PER_TICK,
   DEFAULT_ROW_HEIGHT,
@@ -10,11 +10,12 @@ import PianoRoll, {
   MAX_ROW_HEIGHT,
   MIN_PX_PER_TICK,
   MIN_ROW_HEIGHT,
-} from "@/components/composer-v2/PianoRoll";
-import VoiceStrip from "@/components/composer-v2/VoiceStrip";
-import TransportBar, { getSnapTicks, type SnapDivision } from "@/components/composer-v2/TransportBar";
-import TimelineBar from "@/components/composer-v2/TimelineBar";
+} from "@/components/composer/PianoRoll";
+import VoiceStrip from "@/components/composer/VoiceStrip";
+import TransportBar, { getSnapTicks, type SnapDivision } from "@/components/composer/TransportBar";
+import TimelineBar from "@/components/composer/TimelineBar";
 import ConfirmModal from "@/components/ConfirmModal";
+import ToggleSwitch, { ToolbarSeparator } from "@/components/ToggleSwitch";
 import {
   buildTimelineClipboardPayload,
   computeDuplicatePasteTick,
@@ -24,7 +25,7 @@ import {
   parseTimelineClipboardPayload,
 } from "@/lib/composerV2Clipboard";
 import { analyzePlayability } from "@/lib/songConflicts";
-import type { ConflictJumpTarget } from "@/components/composer-v2/ConflictBanner";
+import type { ConflictJumpTarget } from "@/components/composer/ConflictBanner";
 import { effectiveTranspose, findOutOfRangeNotesForCompose } from "@/lib/composerV2Display";
 import { isAutoSpacesEnabled } from "@/lib/layoutSpaces";
 import {
@@ -39,7 +40,7 @@ import { IMPLICIT_INTRO_MARKER_ID } from "@/lib/sectionMarkers";
 import type { SongDocV2, TimedEvent } from "@/lib/songDocV2";
 import { normalizeSongDocV2, patchSongDocV2 } from "@/lib/songDocV2";
 import { useTimedPlayback } from "@/lib/useTimedPlayback";
-import { COMPOSER_V2_KEY_BINDINGS, matchesAnyKeyBinding, matchesKeyBinding } from "@/lib/config";
+import { COMPOSER_KEY_BINDINGS, matchesAnyKeyBinding, matchesKeyBinding } from "@/lib/config";
 import { getDefaultActiveVoiceId, hasVoiceLayers } from "@/lib/songVoices";
 import {
   buildConsolidateConfirmMessage,
@@ -47,7 +48,7 @@ import {
   previewConsolidate,
 } from "@/lib/voiceConsolidate";
 
-export default function ComposerWorkspaceV2({
+export default function ComposerWorkspace({
   notes,
   labelMode,
   doc,
@@ -282,48 +283,48 @@ export default function ComposerWorkspaceV2({
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (el as any)?.isContentEditable) return;
 
-      if (matchesAnyKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.delete)) {
+      if (matchesAnyKeyBinding(e, COMPOSER_KEY_BINDINGS.delete)) {
         e.preventDefault();
         deleteSelected();
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.copy)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.copy)) {
         e.preventDefault();
         copySelection();
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.cut)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.cut)) {
         e.preventDefault();
         cutSelection();
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.paste)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.paste)) {
         e.preventDefault();
         void pasteFromClipboard();
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.duplicate)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.duplicate)) {
         e.preventDefault();
         duplicateSelection();
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.nudgeLeft)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.nudgeLeft)) {
         if (selectedEventIds.size > 0) {
           e.preventDefault();
           nudgeSelection(-snapDiv, 0);
         }
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.nudgeRight)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.nudgeRight)) {
         if (selectedEventIds.size > 0) {
           e.preventDefault();
           nudgeSelection(snapDiv, 0);
         }
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.nudgeUp)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.nudgeUp)) {
         if (selectedEventIds.size > 0) {
           e.preventDefault();
           nudgeSelection(0, -1);
         }
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.nudgeDown)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.nudgeDown)) {
         if (selectedEventIds.size > 0) {
           e.preventDefault();
           nudgeSelection(0, 1);
         }
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.clearSelection)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.clearSelection)) {
         setSelectedEventIds(new Set());
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.playPause)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.playPause)) {
         e.preventDefault();
         if (playing) handlePause();
         else handlePlay();
-      } else if (matchesKeyBinding(e, COMPOSER_V2_KEY_BINDINGS.transportStop)) {
+      } else if (matchesKeyBinding(e, COMPOSER_KEY_BINDINGS.transportStop)) {
         e.preventDefault();
         handleStop();
       }
@@ -407,6 +408,23 @@ export default function ComposerWorkspaceV2({
       />
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button
+          onClick={() => setScrollToPlayableRequest((n) => n + 1)}
+          title="Centrar la vista en las filas con digitación de ocarina (verdes)"
+          style={{
+            padding: "4px 12px",
+            borderRadius: 8,
+            border: "1px solid rgba(120, 200, 140, 0.35)",
+            background: "rgba(40, 72, 52, 0.55)",
+            color: "#dcefe4",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          Centrar notas
+        </button>
+        <ToolbarSeparator />
         <span style={{ fontSize: 12, opacity: 0.75 }}>Zoom H</span>
         <button
           onClick={() => setPxPerTick((p) => Math.max(MIN_PX_PER_TICK, p - 0.02))}
@@ -433,11 +451,11 @@ export default function ComposerWorkspaceV2({
         >
           +
         </button>
-        <span style={{ width: 1, height: 20, background: "rgba(255,255,255,0.12)", margin: "0 4px" }} />
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
-          <input type="checkbox" checked={transposeEnabled} onChange={(e) => setTransposeEnabled(e.target.checked)} />
-          Transponer vista
-        </label>
+        <ToggleSwitch
+          checked={transposeEnabled}
+          onChange={setTransposeEnabled}
+          label="Transponer vista"
+        />
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
             onClick={onTransposeDec}
@@ -473,22 +491,29 @@ export default function ComposerWorkspaceV2({
             +
           </button>
         </div>
-        <button
-          onClick={() => setScrollToPlayableRequest((n) => n + 1)}
-          title="Centrar la vista en las filas con digitación de ocarina (verdes)"
-          style={{
-            padding: "4px 12px",
-            borderRadius: 8,
-            border: "1px solid rgba(120, 200, 140, 0.35)",
-            background: "rgba(40, 72, 52, 0.55)",
-            color: "#dcefe4",
-            cursor: "pointer",
-            fontSize: 12,
-            fontWeight: 700,
-          }}
-        >
-          Centrar notas
-        </button>
+        <ToolbarSeparator />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+          BPM
+          <input
+            type="number"
+            min={40}
+            max={240}
+            value={doc.timing.tempo}
+            onChange={(e) =>
+              updateDoc((d) => {
+                d.timing.tempo = Math.max(40, Math.min(240, Number(e.target.value) || 120));
+              })
+            }
+            style={{
+              width: 56,
+              padding: "4px 8px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.2)",
+              background: "#1a1a1a",
+              color: "#eaeaea",
+            }}
+          />
+        </label>
         {selectionHint ? (
           <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 8 }}>{selectionHint}</span>
         ) : (
@@ -539,7 +564,6 @@ export default function ComposerWorkspaceV2({
         playheadTick={cursorTick}
         snap={snap}
         onSnapChange={setSnap}
-        onTempoChange={(tempo) => updateDoc((d) => { d.timing.tempo = tempo; })}
         onPlay={handlePlay}
         onPause={handlePause}
         onStop={handleStop}

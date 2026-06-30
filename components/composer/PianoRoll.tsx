@@ -11,12 +11,12 @@ import type { SongDocV2, SectionColorIndex, TimedEvent, TimedNote } from "@/lib/
 import { getSectionEndTick, isLayoutMarker, isSectionMarker, normalizeSongDocV2, patchSongDocV2 } from "@/lib/songDocV2";
 import type { NoteId } from "@/lib/types";
 import { isVoiceVisible, resolveVoiceIdForNewNote, voiceColor as getVoiceColor } from "@/lib/songVoices";
-import PianoRollMarker, { type RollMarkerDisplay } from "@/components/composer-v2/PianoRollMarker";
-import SectionEditModal from "@/components/composer-v2/SectionEditModal";
+import PianoRollMarker, { type RollMarkerDisplay } from "@/components/composer/PianoRollMarker";
+import SectionEditModal from "@/components/composer/SectionEditModal";
 import { IMPLICIT_INTRO_MARKER_ID, resolveSectionMarkers } from "@/lib/sectionMarkers";
-import PianoRollNote from "@/components/composer-v2/PianoRollNote";
-import type { SnapDivision } from "@/components/composer-v2/TransportBar";
-import { getSnapTicks } from "@/components/composer-v2/TransportBar";
+import PianoRollNote from "@/components/composer/PianoRollNote";
+import type { SnapDivision } from "@/components/composer/TransportBar";
+import { getSnapTicks } from "@/components/composer/TransportBar";
 import { PIANO_ROLL_LABEL_WIDTH } from "@/lib/composerV2Layout";
 
 const LABEL_WIDTH = PIANO_ROLL_LABEL_WIDTH;
@@ -841,7 +841,7 @@ export default function PianoRoll({
     <>
     <div
       ref={viewportRef}
-      className="composer-v2-pan-viewport"
+      className="composer-pan-viewport"
       style={{
         borderRadius: 12,
         border: "1px solid rgba(255,255,255,0.12)",

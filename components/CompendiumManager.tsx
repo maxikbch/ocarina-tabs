@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { downloadBundleForNames, makeSongShareCode } from "@/lib/songStore";
 
-export type CompendiumSongRef = { name: string; category: string; subcategory: string; format?: "v1" | "v2" };
+export type CompendiumSongRef = { name: string; category: string; subcategory: string };
 
 function SongNameLabel({ song }: { song: CompendiumSongRef }) {
   return (
@@ -11,22 +11,6 @@ function SongNameLabel({ song }: { song: CompendiumSongRef }) {
       <span style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
         {song.name}
       </span>
-      {song.format === "v2" ? (
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 900,
-            padding: "1px 5px",
-            borderRadius: 4,
-            background: "rgba(40, 72, 52, 0.65)",
-            color: "#b8e8c8",
-            flexShrink: 0,
-          }}
-          title="Canción con timeline (Componer β)"
-        >
-          β
-        </span>
-      ) : null}
     </div>
   );
 }
